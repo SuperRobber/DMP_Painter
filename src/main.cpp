@@ -16,7 +16,6 @@ const int lcd_cmdPin = 23;
 const int lcd_writePin = 22;
 const int powersense_cs_Pin = 34;
 
-// SdFs sd;
 SPISettings spi_powersense_config(16000000, MSBFIRST, SPI_MODE0);
 int32_t powerData = 0;
 
@@ -37,7 +36,9 @@ void setup() {
     lcd_init(lcd_writePin, lcd_cmdPin);
 
     // playVictorySound(AudioPin);
-    // playBeep(AudioPin);
+    playBeep(AudioPin);
+    
+    StartEngines();
 
     // plotter_pos_x=0;
     // plotter_pos_y=0;
@@ -65,6 +66,7 @@ void loop() {
         char m5_mm[10];
 
         char power[10];
+        
         dtostrf(((float)(m1p * 20) * PI) / (200.0f * 256.0f), 9, 2, m1_mm);
         dtostrf(((float)(m2p * 20) * PI) / (200.0f * 256.0f), 9, 2, m2_mm);
         dtostrf(((float)(m3p * 20) * PI) / (200.0f * 256.0f), 9, 2, m3_mm);
@@ -133,10 +135,10 @@ void loop() {
         drawText(226, 57, "mA", msx_8x8_font, false);
         drawText(164, 57, "24v:", msx_8x8_font, false);
 
-        drawText(0, 57, Limit_X1_start_press_count, msx_8x8_font, false);
-        drawText(20, 57, Limit_X1_end_press_count, msx_8x8_font, false);
-        drawText(40, 57, Limit_X2_start_press_count, msx_8x8_font, false);
-        drawText(60, 57, Limit_X2_end_press_count, msx_8x8_font, false);
+        // drawText(0, 57, Limit_X1_start_press_count, msx_8x8_font, false);
+        // drawText(20, 57, Limit_X1_end_press_count, msx_8x8_font, false);
+        // drawText(40, 57, Limit_X2_start_press_count, msx_8x8_font, false);
+        // drawText(60, 57, Limit_X2_end_press_count, msx_8x8_font, false);
     }
 
     if (POWERRefreshTimer > 50000) {

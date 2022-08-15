@@ -1,7 +1,7 @@
 
 
-#ifndef TMC262_REGISTERS_H
-#define TMC262_REGISTERS_H
+#ifndef TMC_REGISTERS_H
+#define TMC_REGISTERS_H
 
 #include "Bitfield.h"
 namespace TMC2130 {

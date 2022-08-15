@@ -37,13 +37,14 @@ extern volatile bool Limit_Y_end   ;
 extern volatile bool Limit_Z_start ;
 extern volatile bool Limit_Z_end   ;
 
-extern volatile uint8_t Limit_X1_start_press_count;
-extern volatile uint8_t Limit_X1_end_press_count;
-extern volatile uint8_t Limit_X2_start_press_count;
-extern volatile uint8_t Limit_X2_end_press_count;
+// extern volatile uint8_t Limit_X1_start_press_count;
+// extern volatile uint8_t Limit_X1_end_press_count;
+// extern volatile uint8_t Limit_X2_start_press_count;
+// extern volatile uint8_t Limit_X2_end_press_count;
 
 
 FASTRUN void StepperLoop();
+void StartEngines();
 void configureSwitches();
 void configureStepperDrivers();
 TMC262::STATUS setTMC262Register(uint8_t bytes[3], int CSPIN);

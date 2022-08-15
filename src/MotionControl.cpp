@@ -3,7 +3,7 @@
 
 bool panic = false;
 
-/**** Limit Switches ****/
+//======== Limit Switch Pins ==========//
 const int Limit_X1_start_pin = 35;
 const int Limit_X1_end_pin = 36;
 const int Limit_X2_start_pin = 37;
@@ -13,6 +13,7 @@ const int Limit_Y_end_pin = 40;
 const int Limit_Z_start_pin = 41;
 const int Limit_Z_end_pin = 14;
 
+//======== Limit Switch Debounce (ON) count ==========//
 uint8_t Limit_X1_start_on_count = 0;
 uint8_t Limit_X1_end_on_count = 0;
 uint8_t Limit_X2_start_on_count = 0;
@@ -22,6 +23,7 @@ uint8_t Limit_Y_end_on_count = 0;
 uint8_t Limit_Z_start_on_count = 0;
 uint8_t Limit_Z_end_on_count = 0;
 
+//======== Limit Switch Debounce (OFF) count ==========//
 uint8_t Limit_X1_start_off_count = __UINT8_MAX__;
 uint8_t Limit_X1_end_off_count = __UINT8_MAX__;
 uint8_t Limit_X2_start_off_count = __UINT8_MAX__;
@@ -31,6 +33,7 @@ uint8_t Limit_Y_end_off_count = __UINT8_MAX__;
 uint8_t Limit_Z_start_off_count = __UINT8_MAX__;
 uint8_t Limit_Z_end_off_count = __UINT8_MAX__;
 
+//======== Limit Switch values ==========//
 volatile bool Limit_X1_start = false;
 volatile bool Limit_X1_end = false;
 volatile bool Limit_X2_start = false;
@@ -40,21 +43,13 @@ volatile bool Limit_Y_end = false;
 volatile bool Limit_Z_start = false;
 volatile bool Limit_Z_end = false;
 
-// for testing
-volatile uint8_t Limit_X1_start_press_count = 0;
-volatile uint8_t Limit_X1_end_press_count = 0;
-volatile uint8_t Limit_X2_start_press_count = 0;
-volatile uint8_t Limit_X2_end_press_count = 0;
-volatile uint8_t Limit_Y_start_press_count = 0;
-volatile uint8_t Limit_Y_end_press_count = 0;
-
 bool stepM1 = false;
 bool stepM2 = false;
 bool stepM3 = false;
 bool stepM4 = false;
 bool stepM5 = false;
 
-/**** Steppers ****/
+//======== Stepper Motors ==========//
 SPISettings tmc262_spi_config(5000000, MSBFIRST, SPI_MODE3);
 SPISettings tmc2130_spi_config(4000000, MSBFIRST, SPI_MODE3);
 int spi_cs_delay = 50;
@@ -85,7 +80,7 @@ const int M5_stepPin = 20;
 const int M5_dirPin = 21;
 const int M5_csPin = 19;
 
-/**** Motion Control ****/
+//======== Motion Control ==========//
 RoboTimer StepLoopTimer; // PIR TIMER triggering StepLoop Interrupt
 volatile float StepLoop_speed = 100.0f;
 
@@ -185,17 +180,11 @@ FASTRUN void StepLoop() {
     uint32_t starttime = ARM_DWT_CYCCNT;
 
     // PHASE 1 : Perform steps calculated previous Loop
-
-    if (stepM1)
-        digitalToggleFast(M1_stepPin);
-    if (stepM2)
-        digitalToggleFast(M2_stepPin);
-    if (stepM3)
-        digitalToggleFast(M3_stepPin);
-    if (stepM4)
-        digitalToggleFast(M4_stepPin);
-    if (stepM5)
-        digitalToggleFast(M5_stepPin);
+    if (stepM1) digitalToggleFast(M1_stepPin);
+    if (stepM2) digitalToggleFast(M2_stepPin);
+    if (stepM3) digitalToggleFast(M3_stepPin);
+    if (stepM4) digitalToggleFast(M4_stepPin);
+    if (stepM5) digitalToggleFast(M5_stepPin);
 
     if (stepM1) {
         if (M1_direction) {
@@ -242,7 +231,8 @@ FASTRUN void StepLoop() {
     // press debounce is shifted in 8 StepLoops
     // release debounce is performed every 300000 cycles
 
-    /*FAST PRESS DEBOUNCE*/
+    //======== Fast PRESS DEBOUNCE ==========//
+
     Limit_X1_start_on_count += digitalReadFast(Limit_X1_start_pin);
     Limit_X1_end_on_count += digitalReadFast(Limit_X1_end_pin);
     Limit_X2_start_on_count += digitalReadFast(Limit_X2_start_pin);
@@ -255,56 +245,48 @@ FASTRUN void StepLoop() {
     if (Limit_X1_start_on_count > 7 && Limit_X1_start == false) {
         Limit_X1_start_off_count = __UINT8_MAX__;
         Limit_X1_start = true;
-        Limit_X1_start_press_count++;
     }
 
     if (Limit_X1_end_on_count > 7 && Limit_X1_end == false) {
         Limit_X1_end_off_count = __UINT8_MAX__;
         Limit_X1_end = true;
-        Limit_X1_end_press_count++;
     }
 
     if (Limit_X2_start_on_count > 7 && Limit_X2_start == false) {
         Limit_X2_start_off_count = __UINT8_MAX__;
         Limit_X2_start = true;
-        Limit_X2_start_press_count++;
     }
 
     if (Limit_X2_end_on_count > 7 && Limit_X2_end == false) {
         Limit_X2_end_off_count = __UINT8_MAX__;
         Limit_X2_end = true;
-        Limit_X2_end_press_count++;
     }
 
     if (Limit_Y_start_on_count > 7 && Limit_Y_start == false) {
         Limit_Y_start_off_count = __UINT8_MAX__;
         Limit_Y_start = true;
-        // Limit_Y_start_press_count++;
     }
 
     if (Limit_Y_end_on_count > 7 && Limit_Y_end == false) {
         Limit_Y_end_off_count = __UINT8_MAX__;
         Limit_Y_end = true;
-        // Limit_Y_end_press_count++;
     }
 
     if (Limit_Z_start_on_count > 7 && Limit_Z_start == false) {
         Limit_Z_start_off_count = __UINT8_MAX__;
         Limit_Z_start = true;
-        // Limit_Z_start_press_count++;
     }
 
     if (Limit_Z_end_on_count > 7 && Limit_Z_end == false) {
         Limit_Z_end_off_count = __UINT8_MAX__;
         Limit_Z_end = true;
 
-        // PANIC STOP ALL MOTORS
+        // PANIC Button! STOPPING ALL MOTORS
         digitalWriteFast(M1_M2_M3_ennPin, 1);
         digitalWriteFast(M4_M5_enPin, 1);
     }
 
-    /*SLOW RELEASE DEBOUNCE*/
-
+    //======== SLOW RELEASE DEBOUNCE ==========//
     if (debounceCounter > 300000) { // every 2 ms ?
         Limit_X1_start_off_count <<= 1;
         Limit_X1_start_off_count |= digitalReadFast(Limit_X1_start_pin);
@@ -369,6 +351,7 @@ FASTRUN void StepLoop() {
         debounceCounter = 0;
     }
     // PHASE 3 : Calculate future steps for next round
+    //======== STEP CALCULATION ==========//
 
     stepM1 = false;
     stepM2 = false;
@@ -377,6 +360,7 @@ FASTRUN void StepLoop() {
     stepM5 = false;
 
     // we have calculated the correct step and direction
+    
     stepM1 = true;
     stepM2 = true;
     stepM3 = true;
@@ -385,8 +369,9 @@ FASTRUN void StepLoop() {
     M2_direction = 0;
     M3_direction = 1;
 
-    // prevend motors from running past limit switches
+    //======== STEP CALCULATION ==========//
 
+    // prevend motors from running past limit switches
     if (M1_direction) {
         if (Limit_X1_start)
             stepM1 = false;
@@ -403,13 +388,18 @@ FASTRUN void StepLoop() {
             stepM2 = false;
     }
 
-    if (M2_direction) {
-        if (Limit_Y_start)
-            stepM3 = false;
-    } else {
-        if (Limit_Y_end)
-            stepM3 = false;
-    }
+    // if (M3_direction) {
+    //     if (Limit_Y_start)
+    //         stepM3 = false;
+    // } else {
+    //     if (Limit_Y_end)
+    //         stepM3 = false;
+    // }
+
+    bool diagonalstep = false;
+
+    //======== PRE-STEP SET Direction ==========//
+
 
     // we can already set the direction for the upcoming step
     digitalWriteFast(M1_dirPin, !M1_direction);
@@ -418,9 +408,13 @@ FASTRUN void StepLoop() {
     digitalWriteFast(M4_dirPin, M4_direction);
     digitalWriteFast(M5_dirPin, M5_direction);
 
+
+
+
+    //======== STEP SPEED ==========//
     // for diagonal steps the loop should take SQRT(2) times longer to
     // maintain constant speed
-    bool diagonalstep = false;
+
     // calculate the amount of time the future step will take
     uint32_t cycles;
     if (diagonalstep) {
@@ -438,6 +432,31 @@ FASTRUN void StepLoop() {
         max_step_cycles = endtime - starttime;
     }
 }
+
+
+void StartEngines() {
+     //======== ENABLE DRIVERS ==========//
+    digitalWriteFast(M1_M2_M3_ennPin, 0);
+    // digitalWriteFast(M4_M5_enPin,0);
+
+
+    //======== PERFORM HOMING ==========//
+
+
+
+    //======== START STEPLOOP ==========//
+
+    Serial.println("Starting Loop");
+    CCM_CSCMR1 &= ~CCM_CSCMR1_PERCLK_CLK_SEL; // 150Mhz PIT clock
+    StepLoopTimer.priority(16);
+    StepLoopTimer.begin(StepLoop, StepLoop_speed); // blinkLED to run every 10 us
+}
+
+
+
+//========                                             ==========//
+//======== Configuration for Switches en Motor Drivers ==========//
+//========                                             ==========//
 
 void configureSwitches() {
     pinMode(Limit_X1_start_pin, INPUT_PULLUP);
@@ -663,11 +682,4 @@ void configureStepperDrivers() {
     // digitalWriteFast(M4_dirPin,1);
     // digitalWriteFast(M5_dirPin,0);
 
-    digitalWriteFast(M1_M2_M3_ennPin, 0);
-    // digitalWriteFast(M4_M5_enPin,0);
-    Serial.println("Starting Loop");
-
-    CCM_CSCMR1 &= ~CCM_CSCMR1_PERCLK_CLK_SEL; // 150Mhz PIT clock
-    StepLoopTimer.priority(16);
-    StepLoopTimer.begin(StepLoop, StepLoop_speed); // blinkLED to run every 10 us
 }
