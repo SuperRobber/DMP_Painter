@@ -330,7 +330,6 @@ void lcd_send_data(uint8_t b) {
 }
 
 void lcd_init(uint8_t write_pin, uint8_t command_pin) {
-    SPI.begin();
     local_lcd_command_pin = command_pin;
     local_lcd_write_pin = write_pin;
 

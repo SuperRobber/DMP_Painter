@@ -4,12 +4,15 @@
 bool panic = false;
 
 //======== Limit Switch Pins ==========//
-const int Limit_X1_start_pin = 35;
-const int Limit_X1_end_pin = 36;
-const int Limit_X2_start_pin = 37;
-const int Limit_X2_end_pin = 38;
-const int Limit_Y_start_pin = 39;
-const int Limit_Y_end_pin = 40;
+const int Limit_X1_start_pin = 36;
+const int Limit_X1_end_pin = 35;
+const int Limit_X2_start_pin = 38;
+const int Limit_X2_end_pin = 37;
+const int Limit_Y_start_pin = 40;
+const int Limit_Y_end_pin = 39;
+// const int Limit_Z_start_pin = 14;
+// const int Limit_Z_end_pin = 41;
+
 const int Limit_Z_start_pin = 41;
 const int Limit_Z_end_pin = 14;
 
@@ -42,6 +45,9 @@ volatile bool Limit_Y_start = false;
 volatile bool Limit_Y_end = false;
 volatile bool Limit_Z_start = false;
 volatile bool Limit_Z_end = false;
+
+volatile bool isHome = false;
+volatile bool isZero = false;
 
 bool stepM1 = false;
 bool stepM2 = false;
@@ -82,7 +88,8 @@ const int M5_csPin = 19;
 
 //======== Motion Control ==========//
 RoboTimer StepLoopTimer; // PIR TIMER triggering StepLoop Interrupt
-volatile float StepLoop_speed = 100.0f;
+volatile float StepLoop_speed = 20.0f;
+volatile float StepHomeLoop_speed = 50.0f;
 
 volatile uint32_t plotter_pos_x = 0;
 volatile uint32_t plotter_pos_y = 0;
@@ -113,63 +120,171 @@ TMC262::SGCSCONF StallGuardConfig = {0};
 TMC262::SMARTEN CoolStepConfig = {0};
 TMC262::DRVCTRL DriverControl = {0};
 
-void updateStepperStatus() {
-    status_M1 = setTMC262Register(DriverControl.bytes, M1_csPin);
-    status_M2 = setTMC262Register(DriverControl.bytes, M2_csPin);
-    status_M3 = setTMC262Register(DriverControl.bytes, M3_csPin);
+void StartEngines() {
+    //======== ENABLE DRIVERS ==========//
+    digitalWriteFast(M1_M2_M3_ennPin, 0);
+    // digitalWriteFast(M4_M5_enPin,0);
 
-    if ((bool)status_M1.Stalled)
-        Serial.println("M1 Stallguard status: Stalled");
-    if ((bool)status_M2.Stalled)
-        Serial.println("M2 Stallguard status: Stalled");
-    if ((bool)status_M3.Stalled)
-        Serial.println("M3 Stallguard status: Stalled");
+    //======== Configure Interrupt Timer ===//
+    CCM_CSCMR1 &= ~CCM_CSCMR1_PERCLK_CLK_SEL; // 150Mhz PIT clock
+    StepLoopTimer.priority(16);
 
-    // if ((bool) status_M1.OpenLoad_A) Serial.println("M1 OpenLoad detected: COIL A");
-    // if ((bool) status_M2.OpenLoad_A) Serial.println("M2 OpenLoad detected: COIL A");
-    // if ((bool) status_M3.OpenLoad_A) Serial.println("M3 OpenLoad detected: COIL A");
+    //======== PERFORM HOMING ==========//
+    Serial.println("Going Home");
+    isHome = false;
+    isZero = false;
+    // Set all directions to go to 0
 
-    // if ((bool) status_M1.OpenLoad_B) Serial.println("M1 OpenLoad detected: COIL B");
-    // if ((bool) status_M2.OpenLoad_B) Serial.println("M2 OpenLoad detected: COIL B");
-    // if ((bool) status_M3.OpenLoad_B) Serial.println("M3 OpenLoad detected: COIL B");
+    M1_direction = 0;
+    M2_direction = 0;
+    M3_direction = 0;
+    stepM1 = false;
+    stepM2 = false;
+    stepM3 = false;
+    stepM4 = false;
+    stepM5 = false;
 
-    if ((bool)status_M1.OverTemp_Warning)
-        Serial.println("M1 Over Temperature Warning!");
-    if ((bool)status_M2.OverTemp_Warning)
-        Serial.println("M2 Over Temperature Warning!");
-    if ((bool)status_M3.OverTemp_Warning)
-        Serial.println("M3 Over Temperature Warning!");
+    StepLoopTimer.begin(StepHomeLoop, StepHomeLoop_speed);
 
-    if ((bool)status_M1.OverTemp_Shutdown)
-        Serial.println("M1 Over Temperature Shutdown!");
-    if ((bool)status_M2.OverTemp_Shutdown)
-        Serial.println("M2 Over Temperature Shutdown!");
-    if ((bool)status_M3.OverTemp_Shutdown)
-        Serial.println("M3 Over Temperature Shutdown!");
+    while (!isHome) {
+        // Serial.println("homing");
+        delay(500);
+    }
+    StepLoopTimer.end();
+    Serial.println("Arrived Home!");
 
-    if ((bool)status_M1.StandStill)
-        Serial.println("M1 StandStill detected.");
-    if ((bool)status_M2.StandStill)
-        Serial.println("M2 StandStill detected.");
-    if ((bool)status_M3.StandStill)
-        Serial.println("M3 StandStill detected.");
+    delay(1000);
+    digitalWriteFast(M1_M2_M3_ennPin, 1);
 
-    if ((bool)status_M1.Short_A)
-        Serial.println("M1 Short on COIL A detected.");
-    if ((bool)status_M2.Short_A)
-        Serial.println("M2 Short on COIL A detected.");
-    if ((bool)status_M3.Short_A)
-        Serial.println("M3 Short on COIL A detected.");
+    //======== START STEPLOOP ==========//
 
-    if ((bool)status_M1.Short_B)
-        Serial.println("M1 Short on COIL B detected.");
-    if ((bool)status_M2.Short_B)
-        Serial.println("M2 Short on COIL B detected.");
-    if ((bool)status_M3.Short_B)
-        Serial.println("M3 Short on COIL B detected.");
+    Serial.println("Starting Loop");
+    StepLoop_speed = 20.0f;
+    StepLoopTimer.begin(StepLoop, StepLoop_speed); // blinkLED to run every 10 us
 }
 
-FASTRUN void StepLoop_Home() {}
+FASTRUN void StepHomeLoop() {
+    // wait for proper debounce init time before starting motors!
+    // so we do not get little accumulatings moves when we home
+    // multiple times
+
+    if (!isHome) {
+        // PHASE 1 : Perform steps calculated previous Loop
+        if (stepM1)
+            digitalToggleFast(M1_stepPin);
+        if (stepM2)
+            digitalToggleFast(M2_stepPin);
+        if (stepM3)
+            digitalToggleFast(M3_stepPin);
+        if (stepM4)
+            digitalToggleFast(M4_stepPin);
+        if (stepM5)
+            digitalToggleFast(M5_stepPin);
+
+        if (stepM1) {
+            if (M1_direction) {
+                M1_pos++;
+            } else {
+                M1_pos--;
+            }
+        }
+
+        if (stepM2) {
+            if (M2_direction) {
+                M2_pos++;
+            } else {
+                M2_pos--;
+            }
+        }
+
+        if (stepM3) {
+            if (M3_direction) {
+                M3_pos++;
+            } else {
+                M3_pos--;
+            }
+        }
+
+        // PHASE 2 : Check and Debounce Limit Switches
+        LimitSwitchesBounce();
+
+        if (!isZero) {
+            if (Limit_X1_start && Limit_X2_start && Limit_Y_start) {
+                isZero = true;
+
+                M1_pos = 0;
+                M2_pos = 0;
+                M3_pos = 0;
+                M1_direction = 1;
+                M2_direction = 1;
+                M3_direction = 1;
+            }
+
+            // PHASE 3 : Calculate future steps for next round
+
+            stepM1 = true;
+            stepM2 = true;
+            stepM3 = true;
+
+        } else {
+            stepM1 = false;
+            stepM2 = false;
+            stepM3 = false;
+            if (M1_pos == 13581 && M2_pos == 13581 && M3_pos == 13581) {
+                isHome = true;
+            } else {
+                if (M1_pos < 13581) {
+                    stepM1 = true;
+                }
+                if (M2_pos < 13581) {
+                    stepM2 = true;
+                }
+                if (M3_pos < 13581) {
+                    stepM3 = true;
+                }
+            }
+        }
+
+        //======== PRE-STEP SET Direction ==========//
+        digitalWriteFast(M1_dirPin, !M1_direction);
+        digitalWriteFast(M2_dirPin, M2_direction); // reverse mount
+        digitalWriteFast(M3_dirPin, M3_direction);
+        digitalWriteFast(M4_dirPin, M4_direction);
+        digitalWriteFast(M5_dirPin, M5_direction);
+
+        // prevent motors from running past limit switches
+        if (M1_direction) {
+            if (Limit_X1_end)
+                stepM1 = false;
+        } else {
+            if (Limit_X1_start)
+                stepM1 = false;
+        }
+
+        if (M2_direction) {
+            if (Limit_X2_end)
+                stepM2 = false;
+        } else {
+            if (Limit_X2_start)
+                stepM2 = false;
+        }
+
+        if (M3_direction) {
+            if (Limit_Y_end)
+                stepM3 = false;
+        } else {
+            if (Limit_Y_start)
+                stepM3 = false;
+        }
+
+        //======== STEP SPEED ==========//
+        // calculate the amount of time the future step will take
+        uint32_t cycles = (float)150 * StepHomeLoop_speed - 0.5f;
+        // StepLoopTimer.unsafe_update(cycles);
+        debounceCounter += cycles;
+    }
+}
+
 FASTRUN void StepLoop() {
     // to make steps as continuous as possiple we perform stepping at beginning of this Loop
     // and after take calculate what to do next round (can take variable amount of time)
@@ -180,11 +295,16 @@ FASTRUN void StepLoop() {
     uint32_t starttime = ARM_DWT_CYCCNT;
 
     // PHASE 1 : Perform steps calculated previous Loop
-    if (stepM1) digitalToggleFast(M1_stepPin);
-    if (stepM2) digitalToggleFast(M2_stepPin);
-    if (stepM3) digitalToggleFast(M3_stepPin);
-    if (stepM4) digitalToggleFast(M4_stepPin);
-    if (stepM5) digitalToggleFast(M5_stepPin);
+    if (stepM1)
+        digitalToggleFast(M1_stepPin);
+    if (stepM2)
+        digitalToggleFast(M2_stepPin);
+    if (stepM3)
+        digitalToggleFast(M3_stepPin);
+    if (stepM4)
+        digitalToggleFast(M4_stepPin);
+    if (stepM5)
+        digitalToggleFast(M5_stepPin);
 
     if (stepM1) {
         if (M1_direction) {
@@ -227,6 +347,89 @@ FASTRUN void StepLoop() {
     }
     // PHASE 2 : Check and Debounce Limit Switches
 
+    LimitSwitchesBounce();
+
+    // PHASE 3 : Calculate future steps for next round
+    //======== STEP CALCULATION ==========//
+
+    stepM1 = false;
+    stepM2 = false;
+    stepM3 = false;
+    stepM4 = false;
+    stepM5 = false;
+
+    // we have calculated the correct step and direction
+
+    // stepM1 = true;
+    // stepM2 = true;
+    // stepM3 = true;
+
+    M1_direction = 1;
+    M2_direction = 1;
+    M3_direction = 1;
+
+    //======== STEP CALCULATION ==========//
+
+    // prevent motors from running past limit switches
+    if (M1_direction) {
+        if (Limit_X1_end)
+            stepM1 = false;
+    } else {
+        if (Limit_X1_start)
+            stepM1 = false;
+    }
+
+    if (M2_direction) {
+        if (Limit_X2_end)
+            stepM2 = false;
+    } else {
+        if (Limit_X2_start)
+            stepM2 = false;
+    }
+
+    // if (M3_direction) {
+    //     if (Limit_Y_end)
+    //         stepM3 = false;
+    // } else {
+    //     if (Limit_Y_start)
+    //         stepM3 = false;
+    // }
+
+    bool diagonalstep = false;
+
+    //======== PRE-STEP SET Direction ==========//
+
+    // CHECK motor Mouting, if DIRECTION value == 1 motor must move forward
+    //  we can already set the direction for the upcoming step
+    digitalWriteFast(M1_dirPin, !M1_direction);
+    digitalWriteFast(M2_dirPin, M2_direction); // reverse mount
+    digitalWriteFast(M3_dirPin, M3_direction);
+    digitalWriteFast(M4_dirPin, M4_direction);
+    digitalWriteFast(M5_dirPin, M5_direction);
+
+    //======== STEP SPEED ==========//
+    // for diagonal steps the loop should take SQRT(2) times longer to
+    // maintain constant speed
+
+    // calculate the amount of time the future step will take
+    uint32_t cycles;
+    if (diagonalstep) {
+        cycles = (float)150 * StepLoop_speed * M_SQRT2 - 0.5f;
+    } else {
+        cycles = (float)150 * StepLoop_speed - 0.5f;
+    }
+    // new timer values are loaded after the upcoming trigger.
+    StepLoopTimer.unsafe_update(cycles);
+    debounceCounter += cycles;
+
+    // END keep track of time for this IRQ
+    uint32_t endtime = ARM_DWT_CYCCNT;
+    if (endtime - starttime > max_step_cycles && endtime > starttime) {
+        max_step_cycles = endtime - starttime;
+    }
+}
+
+FASTRUN void LimitSwitchesBounce() {
     // We do a fast press and slow release debounce
     // press debounce is shifted in 8 StepLoops
     // release debounce is performed every 300000 cycles
@@ -350,109 +553,63 @@ FASTRUN void StepLoop() {
 
         debounceCounter = 0;
     }
-    // PHASE 3 : Calculate future steps for next round
-    //======== STEP CALCULATION ==========//
-
-    stepM1 = false;
-    stepM2 = false;
-    stepM3 = false;
-    stepM4 = false;
-    stepM5 = false;
-
-    // we have calculated the correct step and direction
-    
-    stepM1 = true;
-    stepM2 = true;
-    stepM3 = true;
-
-    M1_direction = 0;
-    M2_direction = 0;
-    M3_direction = 1;
-
-    //======== STEP CALCULATION ==========//
-
-    // prevend motors from running past limit switches
-    if (M1_direction) {
-        if (Limit_X1_start)
-            stepM1 = false;
-    } else {
-        if (Limit_X1_end)
-            stepM1 = false;
-    }
-
-    if (M2_direction) {
-        if (Limit_X2_start)
-            stepM2 = false;
-    } else {
-        if (Limit_X2_end)
-            stepM2 = false;
-    }
-
-    // if (M3_direction) {
-    //     if (Limit_Y_start)
-    //         stepM3 = false;
-    // } else {
-    //     if (Limit_Y_end)
-    //         stepM3 = false;
-    // }
-
-    bool diagonalstep = false;
-
-    //======== PRE-STEP SET Direction ==========//
-
-
-    // we can already set the direction for the upcoming step
-    digitalWriteFast(M1_dirPin, !M1_direction);
-    digitalWriteFast(M2_dirPin, M2_direction); // reverse mount
-    digitalWriteFast(M3_dirPin, M3_direction);
-    digitalWriteFast(M4_dirPin, M4_direction);
-    digitalWriteFast(M5_dirPin, M5_direction);
-
-
-
-
-    //======== STEP SPEED ==========//
-    // for diagonal steps the loop should take SQRT(2) times longer to
-    // maintain constant speed
-
-    // calculate the amount of time the future step will take
-    uint32_t cycles;
-    if (diagonalstep) {
-        cycles = (float)150 * StepLoop_speed * M_SQRT2 - 0.5f;
-    } else {
-        cycles = (float)150 * StepLoop_speed - 0.5f;
-    }
-    // new timer values are loaded after the upcoming trigger.
-    StepLoopTimer.unsafe_update(cycles);
-    debounceCounter += cycles;
-
-    // END keep track of time for this IRQ
-    uint32_t endtime = ARM_DWT_CYCCNT;
-    if (endtime - starttime > max_step_cycles && endtime > starttime) {
-        max_step_cycles = endtime - starttime;
-    }
 }
 
+void updateStepperStatus() {
+    status_M1 = setTMC262Register(DriverControl.bytes, M1_csPin);
+    status_M2 = setTMC262Register(DriverControl.bytes, M2_csPin);
+    status_M3 = setTMC262Register(DriverControl.bytes, M3_csPin);
 
-void StartEngines() {
-     //======== ENABLE DRIVERS ==========//
-    digitalWriteFast(M1_M2_M3_ennPin, 0);
-    // digitalWriteFast(M4_M5_enPin,0);
+    if ((bool)status_M1.Stalled)
+        Serial.println("M1 Stallguard status: Stalled");
+    if ((bool)status_M2.Stalled)
+        Serial.println("M2 Stallguard status: Stalled");
+    if ((bool)status_M3.Stalled)
+        Serial.println("M3 Stallguard status: Stalled");
 
+    // if ((bool) status_M1.OpenLoad_A) Serial.println("M1 OpenLoad detected: COIL A");
+    // if ((bool) status_M2.OpenLoad_A) Serial.println("M2 OpenLoad detected: COIL A");
+    // if ((bool) status_M3.OpenLoad_A) Serial.println("M3 OpenLoad detected: COIL A");
 
-    //======== PERFORM HOMING ==========//
+    // if ((bool) status_M1.OpenLoad_B) Serial.println("M1 OpenLoad detected: COIL B");
+    // if ((bool) status_M2.OpenLoad_B) Serial.println("M2 OpenLoad detected: COIL B");
+    // if ((bool) status_M3.OpenLoad_B) Serial.println("M3 OpenLoad detected: COIL B");
 
+    if ((bool)status_M1.OverTemp_Warning)
+        Serial.println("M1 Over Temperature Warning!");
+    if ((bool)status_M2.OverTemp_Warning)
+        Serial.println("M2 Over Temperature Warning!");
+    if ((bool)status_M3.OverTemp_Warning)
+        Serial.println("M3 Over Temperature Warning!");
 
+    if ((bool)status_M1.OverTemp_Shutdown)
+        Serial.println("M1 Over Temperature Shutdown!");
+    if ((bool)status_M2.OverTemp_Shutdown)
+        Serial.println("M2 Over Temperature Shutdown!");
+    if ((bool)status_M3.OverTemp_Shutdown)
+        Serial.println("M3 Over Temperature Shutdown!");
 
-    //======== START STEPLOOP ==========//
+    if ((bool)status_M1.StandStill)
+        Serial.println("M1 StandStill detected.");
+    if ((bool)status_M2.StandStill)
+        Serial.println("M2 StandStill detected.");
+    if ((bool)status_M3.StandStill)
+        Serial.println("M3 StandStill detected.");
 
-    Serial.println("Starting Loop");
-    CCM_CSCMR1 &= ~CCM_CSCMR1_PERCLK_CLK_SEL; // 150Mhz PIT clock
-    StepLoopTimer.priority(16);
-    StepLoopTimer.begin(StepLoop, StepLoop_speed); // blinkLED to run every 10 us
+    if ((bool)status_M1.Short_A)
+        Serial.println("M1 Short on COIL A detected.");
+    if ((bool)status_M2.Short_A)
+        Serial.println("M2 Short on COIL A detected.");
+    if ((bool)status_M3.Short_A)
+        Serial.println("M3 Short on COIL A detected.");
+
+    if ((bool)status_M1.Short_B)
+        Serial.println("M1 Short on COIL B detected.");
+    if ((bool)status_M2.Short_B)
+        Serial.println("M2 Short on COIL B detected.");
+    if ((bool)status_M3.Short_B)
+        Serial.println("M3 Short on COIL B detected.");
 }
-
-
 
 //========                                             ==========//
 //======== Configuration for Switches en Motor Drivers ==========//
@@ -681,5 +838,4 @@ void configureStepperDrivers() {
     // digitalWriteFast(M3_dirPin,0);
     // digitalWriteFast(M4_dirPin,1);
     // digitalWriteFast(M5_dirPin,0);
-
 }

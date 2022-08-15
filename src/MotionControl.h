@@ -42,8 +42,10 @@ extern volatile bool Limit_Z_end   ;
 // extern volatile uint8_t Limit_X2_start_press_count;
 // extern volatile uint8_t Limit_X2_end_press_count;
 
+FASTRUN void LimitSwitchesBounce();
+FASTRUN void StepLoop();
+FASTRUN void StepHomeLoop();
 
-FASTRUN void StepperLoop();
 void StartEngines();
 void configureSwitches();
 void configureStepperDrivers();

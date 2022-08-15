@@ -10,6 +10,8 @@
 elapsedMicros LCDRefreshTimer;
 elapsedMicros LOADRefreshTimer;
 elapsedMicros POWERRefreshTimer;
+elapsedMillis disconnectTimer;
+elapsedMillis statusTimer;
 
 const int AudioPin = 33;
 const int lcd_cmdPin = 23;
@@ -21,30 +23,85 @@ int32_t powerData = 0;
 
 void setup() {
     Serial.begin(115200);
-    while (!Serial) {
-    }
-
-    configureSwitches();
-    configureStepperDrivers();
 
     pinMode(AudioPin, OUTPUT);
     pinMode(powersense_cs_Pin, OUTPUT);
     digitalWriteFast(powersense_cs_Pin, HIGH);
 
-    // init LCD on SPI0
+    // LCD and PowerSense are on SPI0
     SPI.begin();
+
     lcd_init(lcd_writePin, lcd_cmdPin);
+
+    drawText(0, 0, "Startup: ZERO Position", msx_8x8_font, false);
+    drawScreen();
 
     // playVictorySound(AudioPin);
     playBeep(AudioPin);
-    
+
+    configureSwitches();
+    configureStepperDrivers();
+
     StartEngines();
 
-    // plotter_pos_x=0;
-    // plotter_pos_y=0;
+    // while (!Serial) {
+    // }
 }
 
 void loop() {
+    if (Serial.dtr()) {
+        // getInstructions();
+
+        if (statusTimer > 50) {
+            statusTimer = 0;
+            String statusstring = "";
+            statusstring += "$status$";
+            statusstring += String(M1_pos) ;
+            statusstring +="$";
+            statusstring += String(M2_pos) ;
+            statusstring +="$";
+            statusstring += String(M3_pos) ;
+            statusstring +="$";
+            statusstring += String(M4_pos) ;
+            statusstring +="$";
+            statusstring += String(M5_pos) ;
+            statusstring +="$";
+            statusstring += String(status_M1.Stallguard_Load) ;
+            statusstring +="$";
+            statusstring += String(status_M2.Stallguard_Load) ;
+            statusstring +="$";
+            statusstring += String(status_M3.Stallguard_Load) ;
+            statusstring +="$";
+            statusstring += String((powerData - 2047) * 12) ;
+            statusstring +="$";
+            statusstring += String(Limit_X1_start) ;
+            statusstring +="$";
+            statusstring += String(Limit_X1_end) ;
+            statusstring +="$";
+            statusstring += String(Limit_X2_start) ;
+            statusstring +="$";
+            statusstring += String(Limit_X2_end) ;
+            statusstring +="$";
+            statusstring += String(Limit_Y_start) ;
+            statusstring +="$";
+            statusstring += String(Limit_Y_end) ;
+            statusstring +="$";
+            statusstring += String(Limit_Z_start) ;
+            statusstring +="$";
+            statusstring += String(Limit_Z_end) ;
+            statusstring +="$";
+            Serial.println(statusstring);
+        }
+
+        disconnectTimer = 0;
+    } else {
+        if (disconnectTimer > 60000) {
+            // disconnect for 1 minute
+            // finish list of instructions
+            // go home.
+        }
+    }
+
     // refresh display
     // partially refresh screen about 3us/step
     //< 8ms for a total screen redraw in 32x64 = 2048+12 steps
@@ -66,12 +123,12 @@ void loop() {
         char m5_mm[10];
 
         char power[10];
-        
-        dtostrf(((float)(m1p * 20) * PI) / (200.0f * 256.0f), 9, 2, m1_mm);
-        dtostrf(((float)(m2p * 20) * PI) / (200.0f * 256.0f), 9, 2, m2_mm);
-        dtostrf(((float)(m3p * 20) * PI) / (200.0f * 256.0f), 9, 2, m3_mm);
-        dtostrf(((float)(m4p * 20) * PI) / (200.0f * 256.0f), 9, 2, m4_mm);
-        dtostrf(((float)(m5p * 20) * PI) / (200.0f * 256.0f), 9, 2, m5_mm);
+
+        dtostrf(((float)(m1p * 12) * PI) / (200.0f * 256.0f), 9, 2, m1_mm);
+        dtostrf(((float)(m2p * 12) * PI) / (200.0f * 256.0f), 9, 2, m2_mm);
+        dtostrf(((float)(m3p * 12) * PI) / (200.0f * 256.0f), 9, 2, m3_mm);
+        dtostrf(((float)(m4p * 12) * PI) / (200.0f * 256.0f), 9, 2, m4_mm);
+        dtostrf(((float)(m5p * 12) * PI) / (200.0f * 256.0f), 9, 2, m5_mm);
 
         dtostrf((powerData - 2047) * 12, 5, 0, power);
 
@@ -152,7 +209,7 @@ void loop() {
         // Serial.print((powerData-2047) * 12);
         // Serial.println(" mA");
 
-        updateStepperStatus();
+        // updateStepperStatus();
         // Serial.print("M1 Load: ");
         // Serial.println(1024-status_M1.Stallguard_Load);
         // Serial.print("M2 Load: ");
