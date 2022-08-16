@@ -1,8 +1,8 @@
-#include "Display6963.h"
+// #include "Display6963.h"
+#include <Arduino.h>
 #include "MotionControl.h"
 #include "PWMSounds.h"
-#include "font.h"
-#include <Arduino.h>
+// #include "font.h"
 #include <SPI.h>
 
 /////////////////////////////
@@ -14,8 +14,8 @@ elapsedMillis disconnectTimer;
 elapsedMillis statusTimer;
 
 const int AudioPin = 33;
-const int lcd_cmdPin = 23;
-const int lcd_writePin = 22;
+// const int lcd_cmdPin = 23;
+// const int lcd_writePin = 22;
 const int powersense_cs_Pin = 34;
 
 SPISettings spi_powersense_config(16000000, MSBFIRST, SPI_MODE0);
@@ -31,10 +31,10 @@ void setup() {
     // LCD and PowerSense are on SPI0
     SPI.begin();
 
-    lcd_init(lcd_writePin, lcd_cmdPin);
+    // lcd_init(lcd_writePin, lcd_cmdPin);
 
-    drawText(0, 0, "Startup: ZERO Position", msx_8x8_font, false);
-    drawScreen();
+    // drawText(0, 0, "Startup: ZERO Position", msx_8x8_font, false);
+    // drawScreen();
 
     // playVictorySound(AudioPin);
     playBeep(AudioPin);
@@ -44,6 +44,7 @@ void setup() {
 
     StartEngines();
 
+    playBeep(AudioPin);
     // while (!Serial) {
     // }
 }
@@ -53,44 +54,57 @@ void loop() {
         // getInstructions();
 
         if (statusTimer > 50) {
+
+            SPI.beginTransaction(spi_powersense_config);
+            digitalWriteFast(powersense_cs_Pin, LOW);
+            powerData = SPI.transfer16(0);
+            digitalWriteFast(powersense_cs_Pin, HIGH);
+            SPI.endTransaction();
+
+            updateStepperStatus();
+
             statusTimer = 0;
-            String statusstring = "";
-            statusstring += "$status$";
-            statusstring += String(M1_pos) ;
-            statusstring +="$";
-            statusstring += String(M2_pos) ;
-            statusstring +="$";
-            statusstring += String(M3_pos) ;
-            statusstring +="$";
-            statusstring += String(M4_pos) ;
-            statusstring +="$";
-            statusstring += String(M5_pos) ;
-            statusstring +="$";
-            statusstring += String(status_M1.Stallguard_Load) ;
-            statusstring +="$";
-            statusstring += String(status_M2.Stallguard_Load) ;
-            statusstring +="$";
-            statusstring += String(status_M3.Stallguard_Load) ;
-            statusstring +="$";
-            statusstring += String((powerData - 2047) * 12) ;
-            statusstring +="$";
-            statusstring += String(Limit_X1_start) ;
-            statusstring +="$";
-            statusstring += String(Limit_X1_end) ;
-            statusstring +="$";
-            statusstring += String(Limit_X2_start) ;
-            statusstring +="$";
-            statusstring += String(Limit_X2_end) ;
-            statusstring +="$";
-            statusstring += String(Limit_Y_start) ;
-            statusstring +="$";
-            statusstring += String(Limit_Y_end) ;
-            statusstring +="$";
-            statusstring += String(Limit_Z_start) ;
-            statusstring +="$";
-            statusstring += String(Limit_Z_end) ;
-            statusstring +="$";
-            Serial.println(statusstring);
+            String status = "";
+            status += "$status$";
+            status += String(M1_pos) ;
+            status +="$";
+            status += String(M2_pos) ;
+            status +="$";
+            status += String(M3_pos) ;
+            status +="$";
+            status += String(M4_pos) ;
+            status +="$";
+            status += String(M5_pos) ;
+            status +="$";
+            status += String(status_M1.Stallguard_Load) ;
+            status +="$";
+            status += String(status_M2.Stallguard_Load) ;
+            status +="$";
+            status += String(status_M3.Stallguard_Load) ;
+            status +="$";
+            status += String(0) ;
+            status +="$";
+            status += String(0) ;
+            status +="$";
+            status += String((powerData - 2047) * 12) ;
+            status +="$";
+            status += String(Limit_X1_start) ;
+            status +="$";
+            status += String(Limit_X1_end) ;
+            status +="$";
+            status += String(Limit_X2_start) ;
+            status +="$";
+            status += String(Limit_X2_end) ;
+            status +="$";
+            status += String(Limit_Y_start) ;
+            status +="$";
+            status += String(Limit_Y_end) ;
+            status +="$";
+            status += String(Limit_Z_start) ;
+            status +="$";
+            status += String(Limit_Z_end) ;
+            status +="$";
+            Serial.println(status);
         }
 
         disconnectTimer = 0;
@@ -106,6 +120,8 @@ void loop() {
     // partially refresh screen about 3us/step
     //< 8ms for a total screen redraw in 32x64 = 2048+12 steps
 
+
+    /*
     drawScreenStep();
 
     if (lcd_drawstep == 0) {
@@ -209,7 +225,7 @@ void loop() {
         // Serial.print((powerData-2047) * 12);
         // Serial.println(" mA");
 
-        // updateStepperStatus();
+        updateStepperStatus();
         // Serial.print("M1 Load: ");
         // Serial.println(1024-status_M1.Stallguard_Load);
         // Serial.print("M2 Load: ");
@@ -217,4 +233,6 @@ void loop() {
         // Serial.print("M3 Load: ");
         // Serial.println(1024-status_M3.Stallguard_Load);
     }
+
+    */
 }

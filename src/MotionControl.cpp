@@ -589,12 +589,12 @@ void updateStepperStatus() {
     if ((bool)status_M3.OverTemp_Shutdown)
         Serial.println("M3 Over Temperature Shutdown!");
 
-    if ((bool)status_M1.StandStill)
-        Serial.println("M1 StandStill detected.");
-    if ((bool)status_M2.StandStill)
-        Serial.println("M2 StandStill detected.");
-    if ((bool)status_M3.StandStill)
-        Serial.println("M3 StandStill detected.");
+    // if ((bool)status_M1.StandStill)
+    //     Serial.println("M1 StandStill detected.");
+    // if ((bool)status_M2.StandStill)
+    //     Serial.println("M2 StandStill detected.");
+    // if ((bool)status_M3.StandStill)
+    //     Serial.println("M3 StandStill detected.");
 
     if ((bool)status_M1.Short_A)
         Serial.println("M1 Short on COIL A detected.");
