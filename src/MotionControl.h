@@ -59,6 +59,9 @@ extern volatile bool Limit_X_end   ;
 extern volatile bool Limit_Z_start ;
 extern volatile bool Limit_Z_end   ;
 
+extern volatile uint8_t drawFunction;
+extern volatile int32_t drawIndex;
+
 // extern volatile uint8_t Limit_Y1_start_press_count;
 // extern volatile uint8_t Limit_Y1_end_press_count;
 // extern volatile uint8_t Limit_Y2_start_press_count;

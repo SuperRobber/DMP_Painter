@@ -81,8 +81,8 @@ byte serialMessageData[250];  // reserve 250bytes for serialmessage data
 // int64_t drawError = 0;
 // int64_t drawPosX = 0;
 // int64_t drawPosY = 0;
-String drawFunction = "idle";
-String drawType = "";
+// String drawFunction = "idle";
+// String drawType = "";
 
 void getInstruction(int bytesToRead);
 
@@ -306,7 +306,7 @@ void loop() {
             status += "$";
             status += drawFunction;
             status += "$";
-            status += drawType;
+            status += drawIndex;
             status += "$";
             Serial.println(status);
         }

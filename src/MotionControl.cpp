@@ -132,6 +132,10 @@ volatile uint8_t M3_direction = 1;
 volatile uint8_t M4_direction = 1;
 volatile uint8_t M5_direction = 1;
 
+volatile uint8_t drawFunction = 0;
+volatile int32_t drawIndex = 0;
+
+
 uint32_t debounceCounter = 0;
 
 volatile uint32_t max_step_cycles = 0;  // keep track of highest StepperLoop time
@@ -250,6 +254,7 @@ FASTRUN void CalculateStraightLine() {
                 if (posX == iBuffer[iBufferReadIndex].endX && posY == iBuffer[iBufferReadIndex].endY) {
                     // we are Done drawing this line?;
                     iBufferReadIndex = (iBufferReadIndex + 1) & 63;
+                    drawFunction=0;
                     linestarted = false;
                 }
             }
@@ -286,6 +291,7 @@ FASTRUN void CalculateQuadBezier() {
                 if (posX == iBuffer[iBufferReadIndex].endX && posY == iBuffer[iBufferReadIndex].endY) {
                     // we are Done drawing this line?;
                     iBufferReadIndex = (iBufferReadIndex + 1) & 63;
+                    drawFunction=0;
                     linestarted = false;
                 }
             }
@@ -306,10 +312,12 @@ FASTRUN void CalculateStep() {
     // check if buffer has data or is empty
     if (iBufferReadIndex != iBufferWriteIndex) {
         if (!linestarted) {
+            drawIndex = iBuffer[iBufferReadIndex].index;
             moveEndX = iBuffer[iBufferReadIndex].startX;
             moveEndY = iBuffer[iBufferReadIndex].startY;
 
             if (posX != moveEndX && posY != moveEndY) {
+                drawFunction = 2;
                 moving = true;
                 moveDeltaX = abs(moveEndX - posX);
                 moveDeltaY = -abs(moveEndY - posY);
@@ -323,6 +331,7 @@ FASTRUN void CalculateStep() {
                 }
             } else {
                 // already at startpos no need to move
+                drawFunction = 3;
                 if (iBuffer[iBufferReadIndex].type == 1) {
                     // Draw Straight Line
                 }
@@ -363,6 +372,7 @@ FASTRUN void CalculateStep() {
                     } else {
                         if (posX == moveEndX && posY == moveEndY) {
                             // we have arrived at the start of the line?;
+                            drawFunction = 3;
                             if (iBuffer[iBufferReadIndex].type == 1) {
                                 // Draw Straight Line
                             }
