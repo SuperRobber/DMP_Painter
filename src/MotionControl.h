@@ -5,6 +5,7 @@
 #include "RoboTimer.h"
 #include "TMC_Registers.h"
 
+
 struct DrawInstruction {
     int64_t index;
     uint8_t type;
@@ -23,6 +24,7 @@ struct DrawInstruction {
     int64_t steps;
 };
 
+//======== CIRCULAR Buffer for drawinstructions ==========//
 extern volatile DrawInstruction iBuffer[64];  // use power of 2 size so I can use & in stead of modulo // ex tailIndex = (tailIndex + 1) & 63;
 extern volatile uint8_t iBufferWriteIndex;
 extern volatile uint8_t iBufferReadIndex;
@@ -67,8 +69,6 @@ extern volatile int32_t drawIndex;
 // extern volatile uint8_t Limit_Y2_start_press_count;
 // extern volatile uint8_t Limit_Y2_end_press_count;
 
-
-
 FASTRUN void LimitSwitchesBounce();
 FASTRUN void StepLoop();
 FASTRUN void StepHomeLoop();
@@ -78,7 +78,5 @@ void configureSwitches();
 void configureStepperDrivers();
 TMC262::STATUS setTMC262Register(uint8_t bytes[3], int CSPIN);
 void updateStepperStatus();
-
-FASTRUN void MoveNext();
 
 #endif

@@ -23,12 +23,15 @@ uint8_t moveDirY;
 int64_t moveDeltaX = 0;
 int64_t moveDeltaY = 0;
 int64_t moveError = 0;
-int64_t moveSteps = 0;
-int64_t moveStep = 0;
+double moveSteps = 0;
+double moveStep = 0;
 
 int64_t posX = 0;
 int64_t posY = 0;
 
+int workCurrent = 20;
+int sleepCurrent = 0;
+bool sleeping = false;
 //======== Limit Switch Pins ==========//
 const int Limit_Y1_start_pin = 36;
 const int Limit_Y1_end_pin = 35;
@@ -114,7 +117,7 @@ const int M5_csPin = 19;
 
 //======== Motion Control ==========//
 RoboTimer StepLoopTimer;  // PIR TIMER triggering StepLoop Interrupt
-volatile float StepLoop_speed = 25.0f;
+volatile float StepLoop_speed = 15.0f;
 volatile float StepHomeLoop_speed = 250.0f;
 
 volatile uint32_t plotter_pos_x = 0;
@@ -150,22 +153,22 @@ TMC262::SGCSCONF StallGuardConfig = {0};
 TMC262::SMARTEN CoolStepConfig = {0};
 TMC262::DRVCTRL DriverControl = {0};
 
-void StartEngines() {
-    //======== ENABLE DRIVERS ==========//
-    StallGuardConfig.current_scale = 0;
-
+void setCurrent(int cur) {
+    StallGuardConfig.current_scale = min(31,max(0,cur));
     setTMC262Register(StallGuardConfig.bytes, M1_csPin);
     setTMC262Register(StallGuardConfig.bytes, M2_csPin);
     setTMC262Register(StallGuardConfig.bytes, M3_csPin);
 
+}
+void StartEngines() {
+    //======== ENABLE DRIVERS ==========//
+    setCurrent(0);
+
     digitalWriteFast(M1_M2_M3_ennPin, 0);
     // digitalWriteFast(M4_M5_enPin,0);
 
-    for (int i = 0; i < 25; i++) {
-        StallGuardConfig.current_scale = i;
-        setTMC262Register(StallGuardConfig.bytes, M1_csPin);
-        setTMC262Register(StallGuardConfig.bytes, M2_csPin);
-        setTMC262Register(StallGuardConfig.bytes, M3_csPin);
+    for (int i = 0; i < workCurrent; i++) {
+        setCurrent(i);
         delay(100);
     }
 
@@ -205,7 +208,7 @@ void StartEngines() {
     //======== START STEPLOOP ==========//
 
     Serial.println("Starting Loop");
-    StepLoop_speed = 25.0f;
+    StepLoop_speed = 15.0f;
     StepLoopTimer.begin(StepLoop, StepLoop_speed);  // blinkLED to run every 10 us
 }
 
@@ -311,7 +314,13 @@ FASTRUN void CalculateStep() {
 
     // check if buffer has data or is empty
     if (iBufferReadIndex != iBufferWriteIndex) {
+        if (sleeping) {
+            setCurrent(workCurrent);
+            sleeping=false;
+        }
         if (!linestarted) {
+        // check if this is a connected line or do we 
+        // need to move to a new location ?
             drawIndex = iBuffer[iBufferReadIndex].index;
             moveEndX = iBuffer[iBufferReadIndex].startX;
             moveEndY = iBuffer[iBufferReadIndex].startY;
@@ -324,10 +333,10 @@ FASTRUN void CalculateStep() {
                 moveDirX = (posX < moveEndX ? 1 : -1);
                 moveDirY = (posY < moveEndY ? 1 : -1);
                 moveError = moveDeltaX + moveDeltaY;
-                if (moveDeltaX > moveDeltaY) {
-                    moveSteps = moveDeltaX;
+                if (moveDeltaX > -moveDeltaY) {
+                    moveSteps = (double) moveDeltaX * 0.5;
                 } else {
-                    moveSteps = moveDeltaY;
+                    moveSteps = (double) moveDeltaY * -0.5;
                 }
             } else {
                 // already at startpos no need to move
@@ -341,14 +350,16 @@ FASTRUN void CalculateStep() {
                     drawDeltaX = iBuffer[iBufferReadIndex].deltaX;
                     drawDeltaY = iBuffer[iBufferReadIndex].deltaY;
                 }
-                StepLoop_speed = 25.0f;
+                StepLoop_speed = 15.0f;
                 moving = false;
             }
             moveStep = 0;
             linestarted = true;
         }
         if (moving) {
-            // StepLoop_speed = 25.0f + min(200, abs(moveSteps/2 - moveStep));
+        //move to new location
+            double speedramp = min(-fabs(moveSteps - moveStep) + moveSteps,12000.0) / 400.0;
+            StepLoop_speed = max(7.0 + 30.0 - speedramp,7.0);
             // Serial.println(StepLoop_speed);
             //  Move in a straight line
             if (posX != moveEndX && posY != moveEndY) {
@@ -374,7 +385,7 @@ FASTRUN void CalculateStep() {
                             // we have arrived at the start of the line?;
                             drawFunction = 3;
                             if (iBuffer[iBufferReadIndex].type == 1) {
-                                // Draw Straight Line
+                                // Straight Line
                             }
                             if (iBuffer[iBufferReadIndex].type == 2) {
                                 // Quadratic Bezier
@@ -382,7 +393,7 @@ FASTRUN void CalculateStep() {
                                 drawDeltaX = iBuffer[iBufferReadIndex].deltaX;
                                 drawDeltaY = iBuffer[iBufferReadIndex].deltaY;
                             }
-                            StepLoop_speed = 25.0f;
+                            StepLoop_speed = 15.0f;
                             moving = false;
                         }
                     }
@@ -390,6 +401,7 @@ FASTRUN void CalculateStep() {
             }
             moveStep++;
         } else {
+            //draw
             if (iBuffer[iBufferReadIndex].type == 1) {
                 CalculateStraightLine();
             }
@@ -398,6 +410,15 @@ FASTRUN void CalculateStep() {
                 CalculateQuadBezier();
             }
         }
+    } else {
+        if (!sleeping) {
+            sleeping=true;
+            setCurrent(sleepCurrent);
+        }
+
+        //no instructions in buffer right now
+        //reduce current
+        // setCurrent(sleepCurrent);
     }
 }
 
@@ -648,6 +669,7 @@ FASTRUN void StepLoop() {
     } else {
         cycles = (float)150 * StepLoop_speed - 0.5f;
     }
+
     // new timer values are loaded after the upcoming trigger.
     StepLoopTimer.unsafe_update(cycles);
     debounceCounter += cycles;
@@ -928,15 +950,24 @@ void configureStepperDrivers() {
     driverConfig.slope_low_side = 3;
     driverConfig.short_GND_protection = 0;
     driverConfig.short_detection_delay = 0;
-    driverConfig.Vsense = 1;
-    driverConfig.readInfo = 1;
+    driverConfig.Vsense = 0;
+    driverConfig.readInfo = 0;
 
     setTMC262Register(driverConfig.bytes, M1_csPin);
     setTMC262Register(driverConfig.bytes, M2_csPin);
     setTMC262Register(driverConfig.bytes, M3_csPin);
 
+    // ChopperConfig.address = 4;
+    // ChopperConfig.blanking_time = 2;
+    // ChopperConfig.chopper_mode = 0;
+    // ChopperConfig.random_t_off = 0;
+    // ChopperConfig.hysteresis_decrement_interval = 0;
+    // ChopperConfig.hysteresis_end_value = 3;
+    // ChopperConfig.hysteresis_start_value = 3;
+    // ChopperConfig.Toff = 4;
+
     ChopperConfig.address = 4;
-    ChopperConfig.blanking_time = 2;
+    ChopperConfig.blanking_time = 1;
     ChopperConfig.chopper_mode = 0;
     ChopperConfig.random_t_off = 0;
     ChopperConfig.hysteresis_decrement_interval = 0;
@@ -951,7 +982,7 @@ void configureStepperDrivers() {
     StallGuardConfig.address = 6;
     StallGuardConfig.filter = 0;
     StallGuardConfig.stall_threshold = 4;  // 2s complement 0..63 = 0..63 / 64..127 = -63..-0
-    StallGuardConfig.current_scale = 25;
+    StallGuardConfig.current_scale = 20;
 
     setTMC262Register(StallGuardConfig.bytes, M1_csPin);
     setTMC262Register(StallGuardConfig.bytes, M2_csPin);
