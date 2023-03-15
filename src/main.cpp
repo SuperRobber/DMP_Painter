@@ -38,8 +38,8 @@ union byte64 {
     byte bytes[8];
 };
 
-int64_t requestedInstruction = -1;
-int64_t recievedInstruction = -1;
+// int64_t requestedInstruction = -1;
+// int64_t recievedInstruction = -1;
 int requestCounter = 0;
 
 //======== Serial Binary Protocol ==========//
@@ -57,7 +57,7 @@ int serialPauseHeaderCount = 0;
 int serialHeightMapHeaderCount = 0;
 int serialResetHeaderCount = 0;
 int serialDrawHeaderCount = 0;
-// bool serialHomeCommand = false;
+int serialEOFHeaderCount = 0;
 
 void getSerial(int bytesToRead);
 
@@ -77,9 +77,8 @@ void setup() {
     configureSwitches();
     configureStepperDrivers();
 
-    StartEngines();
-
     playBeep(AudioPin);
+    StartUp();
 }
 
 void loop() {
@@ -89,39 +88,40 @@ void loop() {
             getSerial(bytesToRead);
         }
 
-        // do we have room in the buffer ?
-        if (((iBufferWriteIndex + 1) & 63) != iBufferReadIndex) {
-            // have we received our latest request ?
-            if (recievedInstruction == requestedInstruction) {
-                // yes, lets request a new instruction to add into the buffer
-                requestedInstruction++;
-                Serial.print("@");
-                Serial.print(requestedInstruction);
-                Serial.println("@ requesting instruction ");
-                requestTimer = 0;
-            } else {
-                // no
-                if (requestTimer > 10000) {
-                    // its been 10seconds, lets re-request
+        if (activeState == state_draw && requestedState != state_eof) {
+            // do we have room in the buffer ?
+            if (((iBufferWriteIndex + 1) & 63) != iBufferReadIndex) {
+                // have we received our latest request ?
+                if (recievedInstruction == requestedInstruction) {
+                    // yes, lets request a new instruction to add into the buffer
+                    requestedInstruction++;
                     Serial.print("@");
                     Serial.print(requestedInstruction);
-                    Serial.print("@ requesting instruction, ");
-                    Serial.print("retry: ");
-                    Serial.println(requestCounter);
-                    if (requestCounter > 20) {
-                        Serial.println("returning home.");
-                    } else {
-                        requestCounter++;
-                    }
+                    Serial.println("@ requesting instruction ");
                     requestTimer = 0;
+                } else {
+                    // no
+                    if (requestTimer > 10000) {
+                        // its been 10seconds, lets re-request
+                        Serial.print("@");
+                        Serial.print(requestedInstruction);
+                        Serial.print("@ requesting instruction, ");
+                        Serial.print("retry: ");
+                        Serial.println(requestCounter);
+                        if (requestCounter > 20) {
+                            // Serial.println("returning home.");
+                        } else {
+                            requestCounter++;
+                        }
+                        requestTimer = 0;
+                    }
                 }
+            } else {
+                // buffer is full, wait for drawing to advance before requesting more
             }
-        } else {
-            // buffer is full, wait for drawing to advance before requesting more
         }
 
         if (statusTimer > 50) {  // 20fps update
-
             SPI.beginTransaction(spi_powersense_config);
             digitalWriteFast(powersense_cs_Pin, LOW);
             powerData = SPI.transfer16(0);
@@ -200,7 +200,8 @@ void getSerial(int bytesToRead) {
         //// check for home command (start 10 x 0xF0)
         if (bytebuffer[i] == 0xF0) {
             if (serialHomeHeaderCount == 9) {
-                Serial.println("Received HOME command");
+                Serial.println("Received Home command");
+                requestedState=state_home;
                 serialHomeHeaderCount = 0;
             } else {
                 serialHomeHeaderCount++;
@@ -213,6 +214,7 @@ void getSerial(int bytesToRead) {
         if (bytebuffer[i] == 0xF1) {
             if (serialDrawHeaderCount == 9) {
                 Serial.println("Received Draw command");
+                requestedState=state_draw;
                 serialDrawHeaderCount = 0;
             } else {
                 serialDrawHeaderCount++;
@@ -225,6 +227,7 @@ void getSerial(int bytesToRead) {
         if (bytebuffer[i] == 0xF2) {
             if (serialResetHeaderCount == 9) {
                 Serial.println("Received Reset command");
+                requestedState=state_reset;
                 serialResetHeaderCount = 0;
             } else {
                 serialResetHeaderCount++;
@@ -248,13 +251,27 @@ void getSerial(int bytesToRead) {
         //// check for pause command (start 10 x 0xF4)
         if (bytebuffer[i] == 0xF4) {
             if (serialPauseHeaderCount == 9) {
-                Serial.println("Received PAUSE command");
+                Serial.println("Received Pause command");
+                requestedState=state_none;
                 serialPauseHeaderCount = 0;
             } else {
                 serialPauseHeaderCount++;
             }
         } else {
             serialPauseHeaderCount = 0;
+        }
+
+        //// check for epf command (start 10 x 0xF5)
+        if (bytebuffer[i] == 0xF5) {
+            if (serialEOFHeaderCount == 9) {
+                Serial.println("Received EOF command");
+                requestedState=state_eof;
+                serialEOFHeaderCount = 0;
+            } else {
+                serialEOFHeaderCount++;
+            }
+        } else {
+            serialEOFHeaderCount = 0;
         }
 
         //// check for instructions (start 10 x 0xFF)

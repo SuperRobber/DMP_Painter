@@ -24,19 +24,52 @@ struct DrawInstruction {
     int64_t steps;
 };
 
+//======== State Machine  ==========//
+enum State {
+    state_none=0,
+    state_start=1,
+    state_home=2,
+    state_draw=3,
+    state_idle=4,
+    state_panic=5,
+    state_eof=6,
+    state_reset=6,
+    state_heightmap=10
+};
+
+enum Action {
+    action_none=0,
+    action_moving=1,
+    action_drawing=2,
+    action_homeing=3,
+    action_waiting=4,
+    action_sleeping=5,
+    action_mapping=6,
+    action_panicked=7,
+    action_draw_newline=8,
+    action_draw_move=9,
+    action_draw_draw=10  
+};
+
+extern volatile enum Action currentAction;
+extern volatile enum State  activeState;
+extern volatile enum State  requestedState;
+
 //======== CIRCULAR Buffer for drawinstructions ==========//
 extern volatile DrawInstruction iBuffer[64];  // use power of 2 size so I can use & in stead of modulo // ex tailIndex = (tailIndex + 1) & 63;
 extern volatile uint8_t iBufferWriteIndex;
 extern volatile uint8_t iBufferReadIndex;
+extern volatile int64_t requestedInstruction;
+extern volatile int64_t recievedInstruction;
 
-extern volatile uint32_t plotter_pos_x;
-extern volatile uint32_t plotter_pos_y;
+// extern volatile uint32_t plotter_pos_x;
+// extern volatile uint32_t plotter_pos_y;
 
-extern volatile uint32_t M1_pos;
-extern volatile uint32_t M2_pos;
-extern volatile uint32_t M3_pos;
-extern volatile uint32_t M4_pos;
-extern volatile uint32_t M5_pos;
+extern volatile int32_t M1_pos;
+extern volatile int32_t M2_pos;
+extern volatile int32_t M3_pos;
+extern volatile int32_t M4_pos;
+extern volatile int32_t M5_pos;
 
 extern TMC262::STATUS  status_M1;
 extern TMC262::STATUS  status_M2;
@@ -69,11 +102,19 @@ extern volatile int32_t drawIndex;
 // extern volatile uint8_t Limit_Y2_start_press_count;
 // extern volatile uint8_t Limit_Y2_end_press_count;
 
-FASTRUN void LimitSwitchesBounce();
-FASTRUN void StepLoop();
-FASTRUN void StepHomeLoop();
+FASTRUN void MachineLoop();
+FASTRUN void CalculateHomeSteps();
+FASTRUN void StepMotors();
+FASTRUN void SetDirectionsAndLimits();
+FASTRUN void CalculateDrawSteps();
+FASTRUN void DebounceSwitches();
+FASTRUN void StepX(int8_t dir);
+FASTRUN void StepY(int8_t dir);
+FASTRUN void setCurrent(int cur);
+FASTRUN void CalculateStraightLine();
+FASTRUN void CalculateQuadBezier();
 
-void StartEngines();
+void StartUp();
 void configureSwitches();
 void configureStepperDrivers();
 TMC262::STATUS setTMC262Register(uint8_t bytes[3], int CSPIN);

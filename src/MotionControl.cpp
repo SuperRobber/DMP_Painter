@@ -2,12 +2,17 @@
 
 #include <SPI.h>
 
-bool panic = false;
+volatile enum Action currentAction = action_none;
+
+volatile enum State activeState = state_none;
+volatile enum State requestedState = state_none;
 
 //======== CIRCULAR Buffer for drawinstructions ==========//
 volatile DrawInstruction iBuffer[64];  // use power of 2 size so I can use & in stead of modulo // ex tailIndex = (tailIndex + 1) & 63;
 volatile uint8_t iBufferWriteIndex = 0;
 volatile uint8_t iBufferReadIndex = 0;
+volatile int64_t requestedInstruction = -1;
+volatile int64_t recievedInstruction = -1;
 
 // drawing vars
 bool moving = true;
@@ -29,23 +34,26 @@ double moveStep = 0;
 int64_t posX = 0;
 int64_t posY = 0;
 
+uint64_t sleeptimer = 0;
+
 int workCurrent = 20;
 int sleepCurrent = 0;
+
 bool sleeping = false;
+
 //======== Limit Switch Pins ==========//
+const int panic_pin = 23;
 const int Limit_Y1_start_pin = 36;
 const int Limit_Y1_end_pin = 35;
 const int Limit_Y2_start_pin = 38;
 const int Limit_Y2_end_pin = 37;
 const int Limit_X_start_pin = 40;
 const int Limit_X_end_pin = 39;
-// const int Limit_Z_start_pin = 14;
-// const int Limit_Z_end_pin = 41;
-
 const int Limit_Z_start_pin = 41;
 const int Limit_Z_end_pin = 14;
 
 //======== Limit Switch Debounce (ON) count ==========//
+uint8_t panic_on_count = 0;
 uint8_t Limit_Y1_start_on_count = 0;
 uint8_t Limit_Y1_end_on_count = 0;
 uint8_t Limit_Y2_start_on_count = 0;
@@ -55,7 +63,9 @@ uint8_t Limit_X_end_on_count = 0;
 uint8_t Limit_Z_start_on_count = 0;
 uint8_t Limit_Z_end_on_count = 0;
 
+
 //======== Limit Switch Debounce (OFF) count ==========//
+uint8_t panic_off_count = __UINT8_MAX__;
 uint8_t Limit_Y1_start_off_count = __UINT8_MAX__;
 uint8_t Limit_Y1_end_off_count = __UINT8_MAX__;
 uint8_t Limit_Y2_start_off_count = __UINT8_MAX__;
@@ -66,6 +76,7 @@ uint8_t Limit_Z_start_off_count = __UINT8_MAX__;
 uint8_t Limit_Z_end_off_count = __UINT8_MAX__;
 
 //======== Limit Switch values ==========//
+volatile bool panic_switch = false;
 volatile bool Limit_Y1_start = false;
 volatile bool Limit_Y1_end = false;
 volatile bool Limit_Y2_start = false;
@@ -116,32 +127,29 @@ const int M5_dirPin = 21;
 const int M5_csPin = 19;
 
 //======== Motion Control ==========//
-RoboTimer StepLoopTimer;  // PIR TIMER triggering StepLoop Interrupt
-volatile float StepLoop_speed = 15.0f;
-volatile float StepHomeLoop_speed = 250.0f;
+RoboTimer IRQTimer;  // PIR TIMER triggering StepLoop Interrupt
 
-volatile uint32_t plotter_pos_x = 0;
-volatile uint32_t plotter_pos_y = 0;
+float drawSpeed = 15.0f;
+float homeSpeed = 100.0f;
+float machineSpeed = 100.0f;
 
-volatile uint32_t M1_pos = 0;
-volatile uint32_t M2_pos = 0;
-volatile uint32_t M3_pos = 0;
-volatile uint32_t M4_pos = 0;
-volatile uint32_t M5_pos = 0;
+uint32_t debounceCounter = 0;
+volatile uint32_t max_step_cycles = 0;  // keep track of highest StepperLoop time
 
-volatile uint8_t M1_direction = 0;
-volatile uint8_t M2_direction = 0;
-volatile uint8_t M3_direction = 1;
-volatile uint8_t M4_direction = 1;
-volatile uint8_t M5_direction = 1;
+volatile int32_t M1_pos = 0;
+volatile int32_t M2_pos = 0;
+volatile int32_t M3_pos = 0;
+volatile int32_t M4_pos = 0;
+volatile int32_t M5_pos = 0;
+
+volatile int8_t M1_direction = 0;
+volatile int8_t M2_direction = 0;
+volatile int8_t M3_direction = 0;
+volatile int8_t M4_direction = 0;
+volatile int8_t M5_direction = 0;
 
 volatile uint8_t drawFunction = 0;
 volatile int32_t drawIndex = 0;
-
-
-uint32_t debounceCounter = 0;
-
-volatile uint32_t max_step_cycles = 0;  // keep track of highest StepperLoop time
 
 TMC262::STATUS status_M1 = {0};
 TMC262::STATUS status_M2 = {0};
@@ -153,70 +161,405 @@ TMC262::SGCSCONF StallGuardConfig = {0};
 TMC262::SMARTEN CoolStepConfig = {0};
 TMC262::DRVCTRL DriverControl = {0};
 
-void setCurrent(int cur) {
-    StallGuardConfig.current_scale = min(31,max(0,cur));
-    setTMC262Register(StallGuardConfig.bytes, M1_csPin);
-    setTMC262Register(StallGuardConfig.bytes, M2_csPin);
-    setTMC262Register(StallGuardConfig.bytes, M3_csPin);
-
-}
-void StartEngines() {
+void StartUp() {
     //======== ENABLE DRIVERS ==========//
-    setCurrent(0);
-
+    activeState = state_none;
+    requestedState = state_none;
+    setCurrent(sleepCurrent);
     digitalWriteFast(M1_M2_M3_ennPin, 0);
-    // digitalWriteFast(M4_M5_enPin,0);
+    digitalWriteFast(M4_M5_enPin,0);
 
-    for (int i = 0; i < workCurrent; i++) {
-        setCurrent(i);
-        delay(100);
-    }
-
+    setCurrent(workCurrent);
+    delay(1000);
     //======== Configure Interrupt Timer ===//
     CCM_CSCMR1 &= ~CCM_CSCMR1_PERCLK_CLK_SEL;  // 150Mhz PIT clock
-    StepLoopTimer.priority(16);
+    requestedState = state_home;
+    linestarted = false;
+    IRQTimer.priority(16);
+    IRQTimer.begin(MachineLoop, machineSpeed);
+}
 
-    //======== PERFORM HOMING ==========//
-    Serial.println("Going Home");
-    isHome = false;
-    isZero = false;
+FASTRUN void MachineLoop() {
+    // to make steps as continuStepMotorsous as possiple we perform stepping at beginning of this each Loop
+    // and after take calculate what to do next round (can take variable amount of time)
+    // to make steps as continuous as possiple we perform stepping at beginning of this Loop
+    // and after take calculate what to do next round (can take variable amount of time)
 
-    M1_direction = 0;
-    M2_direction = 0;
-    M3_direction = 0;
-    stepM1 = false;
-    stepM2 = false;
-    stepM3 = false;
-    stepM4 = false;
-    stepM5 = false;
+    uint32_t starttime = ARM_DWT_CYCCNT;
 
-    StepLoopTimer.begin(StepHomeLoop, 2000);
+    switch (activeState) {
+        case state_draw: {
+            StepMotors();  // Perform Motor Steps (calculated in previous Iteration) AND update positions ==========//
+            stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false; //reset steps for next iteration
 
-    while (!isHome) {
-        // Serial.println("homing");
-        delay(500);
+            // steps made, positions updated check for end of line
+            if (linestarted) {
+                if (posX == iBuffer[iBufferReadIndex].endX && posY == iBuffer[iBufferReadIndex].endY) {
+                    // we are Done drawing current line!
+                    iBufferReadIndex = (iBufferReadIndex + 1) & 63;
+                    drawFunction = 0;
+                    linestarted = false;
+                    currentAction=action_none;
+
+                    // do we need to pause now ?
+                    if (requestedState == state_none) {
+                        activeState = state_none;
+                        break;
+                    }
+                }
+            }
+
+            // check if buffer has data or is empty
+            if (iBufferReadIndex != iBufferWriteIndex) {
+                //do we need to start a new line ?
+
+
+
+                if (sleeping) {
+                    setCurrent(workCurrent);
+                    sleeping = false;
+                } else {
+                    CalculateDrawSteps();      // Calculate future steps & directions for next iterations ==========//
+                    SetDirectionsAndLimits();  // Set PRE-STEP Direction &&& Check LIMITS
+                    machineSpeed = drawSpeed;
+                }
+                sleeptimer = 0;
+
+            } else {
+                if (requestedState == state_eof) {
+                    requestedState = state_none;
+                    activeState = state_none;
+                } else {
+                    if (!sleeping) {
+                        sleeptimer++;
+                        if (sleeptimer > 50000) {
+                            sleeping = true;
+                            setCurrent(sleepCurrent);
+                            sleeptimer = 0;
+                        }
+                    }
+                    machineSpeed = 100.0f;
+                }
+            }
+            break;
+        }
+        case state_home: {
+            if (!isHome) {
+                StepMotors();  // Perform Motor Steps (calculated in previous Iteration) AND update positions ==========//
+
+                stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
+                CalculateHomeSteps();
+                SetDirectionsAndLimits();  // Set PRE-STEP Direction &&& Check LIMITS
+            } else {
+                if (requestedState == state_home) requestedState = state_none;
+                activeState = state_none;
+                // if (requestedState == state_draw) {
+                //     activeState = state_draw;
+                // }
+                // if (requestedState == state_none) activeState = state_none;
+            }
+            machineSpeed = homeSpeed;
+            break;
+        }
+        case state_none: {
+            if (requestedState == state_none) {
+                if (!sleeping) {
+                    sleeptimer++;
+                    if (sleeptimer > 50000) {
+                        sleeping = true;
+                        setCurrent(sleepCurrent);
+                        sleeptimer = 0;
+                    }
+                }
+            }
+
+            if (requestedState == state_draw) {
+                if (sleeping) {
+                    sleeping = false;
+                    sleeptimer = 0;
+                    setCurrent(workCurrent);
+                }
+                stepM1 = false;
+                stepM2 = false;
+                stepM3 = false;
+                stepM4 = false;
+                stepM5 = false;
+                drawSpeed = 100.0f;
+                activeState = state_draw;
+            }
+
+            if (requestedState == state_reset) {
+                iBufferReadIndex=0;
+                iBufferWriteIndex=0;
+                requestedInstruction = -1;
+                recievedInstruction = -1;
+                drawIndex=0;
+                requestedState = state_none;
+                // activeState = state_none;
+            }
+
+            if (requestedState == state_home) {
+                isHome = false;
+                isZero = false;
+
+                if (sleeping) {
+                    sleeping = false;
+                    sleeptimer = 0;
+                    setCurrent(workCurrent);
+                }
+
+                stepM1 = false;
+                stepM2 = false;
+                stepM3 = false;
+                stepM4 = false;
+                stepM5 = false;
+                homeSpeed = 100.0f;
+                activeState = state_home;
+            }
+            machineSpeed = 100.0f;
+            break;
+        }
     }
-    StepLoopTimer.end();
-    Serial.println("Arrived Home!");
-    M1_pos = 0;
-    M2_pos = 0;
-    M3_pos = 0;
+    // Debounce Switches
+    DebounceSwitches();
 
-    delay(1000);
-    // digitalWriteFast(M1_M2_M3_ennPin, 1);
+    //======== set STEP SPEED for next Iteration ==========//
+    // for diagonal steps the loop should take SQRT(2) times longer to
+    // maintain constant speed
 
-    //======== START STEPLOOP ==========//
+    uint32_t cycles;
+    if (stepM1 && stepM2 && stepM3) {
+        // diagonalstep
+        cycles = (uint32_t)(150.0f * machineSpeed * M_SQRT2 - 0.5f);
+    } else {
+        cycles = (uint32_t)(150.0f * machineSpeed - 0.5f);
+    }
 
-    Serial.println("Starting Loop");
-    StepLoop_speed = 15.0f;
-    StepLoopTimer.begin(StepLoop, StepLoop_speed);  // blinkLED to run every 10 us
+    debounceCounter += cycles;
+    IRQTimer.unsafe_update(cycles);
+
+    // END keep track of time for this IRQ
+    uint32_t endtime = ARM_DWT_CYCCNT;
+    // if (endtime - starttime > max_step_cycles && endtime > starttime) {
+    if (endtime - starttime > max_step_cycles) {
+        max_step_cycles = endtime - starttime;
+    }
+}
+
+FASTRUN void StepMotors() {
+    if (stepM1) {
+        digitalToggleFast(M1_stepPin);
+        M1_pos += M1_direction;
+    }
+    if (stepM2) {
+        digitalToggleFast(M2_stepPin);
+        M2_pos += M2_direction;
+    }
+    if (stepM3) {
+        digitalToggleFast(M3_stepPin);
+        M3_pos += M3_direction;
+    }
+    if (stepM4) {
+        digitalToggleFast(M4_stepPin);
+        M4_pos += M4_direction;
+    }
+    // if (stepM5) {
+    //     digitalToggleFast(M5_stepPin);
+    //     M5_pos += M5_direction;
+    // }
+}
+
+FASTRUN void SetDirectionsAndLimits() {
+    if (M1_direction == 1) {
+        digitalWriteFast(M1_dirPin, LOW);  // Motor reverse mount
+        if (Limit_Y1_end) stepM1 = false;
+    }
+    if (M1_direction == -1) {
+        digitalWriteFast(M1_dirPin, HIGH);  // Motor reverse mount
+        if (Limit_Y1_start) stepM1 = false;
+    }
+
+    if (M2_direction == 1) {
+        digitalWriteFast(M2_dirPin, HIGH);
+        if (Limit_Y2_end) stepM2 = false;
+    }
+    if (M2_direction == -1) {
+        digitalWriteFast(M2_dirPin, LOW);
+        if (Limit_Y2_start) stepM2 = false;
+    }
+
+    if (M3_direction == 1) {
+        digitalWriteFast(M3_dirPin, HIGH);
+        if (Limit_X_end) stepM3 = false;
+    }
+    if (M3_direction == -1) {
+        digitalWriteFast(M3_dirPin, LOW);
+        if (Limit_X_start) stepM3 = false;
+    }
+
+    if (M4_direction == 1) {
+        digitalWriteFast(M4_dirPin, LOW); // Motor reverse mount
+        if (Limit_Z_end) stepM4 = false;
+    }
+    if (M4_direction == -1) {
+        digitalWriteFast(M4_dirPin, HIGH); // Motor reverse mount
+        if (Limit_Z_start) stepM4 = false;
+    }
+
+    // digitalWriteFast(M4_dirPin, M4_direction);
+    // digitalWriteFast(M5_dirPin, M5_direction);
+}
+
+FASTRUN void CalculateHomeSteps() {
+    if (!isZero) {
+        if (Limit_Y1_start && Limit_Y2_start && Limit_X_start && Limit_Z_start) {
+            isZero = true;
+            M1_pos = 0;
+            M2_pos = 0;
+            M3_pos = 0;
+            M4_pos = 0;
+        } else {
+            M1_direction = -1;
+            stepM1 = true;
+            M2_direction = -1;
+            stepM2 = true;
+            M3_direction = -1;
+            stepM3 = true;
+            M4_direction = -1;
+            stepM4 = true;
+        }
+    } else {
+        if (M1_pos == 13581 && M2_pos == 13581 && M3_pos == 13581 && M4_pos == 13581) {
+            M1_pos = 0;
+            M2_pos = 0;
+            M3_pos = 0;
+            M4_pos = 0;
+            isHome = true;
+        } else {
+            if (M1_pos < 13581) {
+                M1_direction = 1;
+                stepM1 = true;
+            }
+            if (M2_pos < 13581) {
+                M2_direction = 1;
+                stepM2 = true;
+            }
+            if (M3_pos < 13581) {
+                M3_direction = 1;
+                stepM3 = true;
+            }
+            if (M4_pos < 13581) {
+                M4_direction = 1;
+                stepM4 = true;
+            }
+        }
+    }
+}
+
+FASTRUN void CalculateDrawSteps() {
+    posY = M1_pos;
+    posX = M3_pos;
+    if (!linestarted) {
+        // check if this is a connected line or do we
+        // need to move to a new location ?
+        drawIndex = iBuffer[iBufferReadIndex].index;
+        moveEndX = iBuffer[iBufferReadIndex].startX;
+        moveEndY = iBuffer[iBufferReadIndex].startY;
+
+        if (posX != moveEndX && posY != moveEndY) {
+            moveDeltaX = abs(moveEndX - posX);
+            moveDeltaY = -abs(moveEndY - posY);
+            moveDirX = (posX < moveEndX ? 1 : -1);
+            moveDirY = (posY < moveEndY ? 1 : -1);
+            moveError = moveDeltaX + moveDeltaY;
+            if (moveDeltaX > -moveDeltaY) {
+                moveSteps = (double)moveDeltaX * 0.5;
+            } else {
+                moveSteps = (double)moveDeltaY * -0.5;
+            }
+            drawFunction = 2;
+            moving = true;
+        } else {
+            // already at startpos no need to move
+            if (iBuffer[iBufferReadIndex].type == 1) {
+                // Draw Straight Line
+            }
+            if (iBuffer[iBufferReadIndex].type == 2) {
+                // Quadratic Bezier
+                drawError = iBuffer[iBufferReadIndex].error;
+                drawDeltaX = iBuffer[iBufferReadIndex].deltaX;
+                drawDeltaY = iBuffer[iBufferReadIndex].deltaY;
+            }
+            drawSpeed = 15.0f;
+            drawFunction = 3;
+            moving = false;
+        }
+        moveStep = 0;
+        linestarted = true;
+    }
+
+    if (moving) {
+        // move to new location
+        double speedramp = min(-fabs(moveSteps - moveStep) + moveSteps, 12000.0) / 400.0;
+        drawSpeed = max(7.0 + 30.0 - speedramp, 7.0);
+        //  Move in a straight line
+        if (posX != moveEndX && posY != moveEndY) {
+            if (2 * moveError <= moveDeltaX) {
+                moveError += moveDeltaX;
+                // stepY??
+                StepY(moveDirY);
+            }
+            if (2 * moveError >= moveDeltaY) {
+                moveError += moveDeltaY;
+                // stepX??
+                StepX(moveDirX);
+            }
+        } else {
+            // at least x or y has reached its final position, it anything remains, it must be a straight line
+            if (posX != moveEndX) {
+                StepX(moveDirX);
+            } else {
+                if (posY != moveEndY) {
+                    StepY(moveDirY);
+                } else {
+                    if (posX == moveEndX && posY == moveEndY) {
+                        // we have arrived at the start of the line?;
+                        drawFunction = 3;
+                        if (iBuffer[iBufferReadIndex].type == 1) {
+                            // Straight Line
+                        }
+                        if (iBuffer[iBufferReadIndex].type == 2) {
+                            // Quadratic Bezier
+                            drawError = iBuffer[iBufferReadIndex].error;
+                            drawDeltaX = iBuffer[iBufferReadIndex].deltaX;
+                            drawDeltaY = iBuffer[iBufferReadIndex].deltaY;
+                        }
+                        drawSpeed = 15.0f;
+                        moving = false;
+
+                        // do we pause here ?
+                    }
+                }
+            }
+        }
+        moveStep++;
+    } else {
+        // draw
+        if (iBuffer[iBufferReadIndex].type == 1) {
+            CalculateStraightLine();
+        }
+
+        if (iBuffer[iBufferReadIndex].type == 2) {
+            CalculateQuadBezier();
+        }
+    }
 }
 
 FASTRUN void StepX(int8_t dir) {
     if (dir > 0) {
         M3_direction = 1;
     } else {
-        M3_direction = 0;
+        M3_direction = -1;
     }
     stepM3 = true;
 }
@@ -226,11 +569,18 @@ FASTRUN void StepY(int8_t dir) {
         M1_direction = 1;
         M2_direction = 1;
     } else {
-        M1_direction = 0;
-        M2_direction = 0;
+        M1_direction = -1;
+        M2_direction = -1;
     }
     stepM1 = true;
     stepM2 = true;
+}
+
+FASTRUN void setCurrent(int cur) {
+    StallGuardConfig.current_scale = min(31, max(0, cur));
+    setTMC262Register(StallGuardConfig.bytes, M1_csPin);
+    setTMC262Register(StallGuardConfig.bytes, M2_csPin);
+    setTMC262Register(StallGuardConfig.bytes, M3_csPin);
 }
 
 FASTRUN void CalculateStraightLine() {
@@ -253,13 +603,6 @@ FASTRUN void CalculateStraightLine() {
         } else {
             if (posY != iBuffer[iBufferReadIndex].endY) {
                 StepY(iBuffer[iBufferReadIndex].dirY);
-            } else {
-                if (posX == iBuffer[iBufferReadIndex].endX && posY == iBuffer[iBufferReadIndex].endY) {
-                    // we are Done drawing this line?;
-                    iBufferReadIndex = (iBufferReadIndex + 1) & 63;
-                    drawFunction=0;
-                    linestarted = false;
-                }
             }
         }
     }
@@ -290,404 +633,17 @@ FASTRUN void CalculateQuadBezier() {
         } else {
             if (posY != iBuffer[iBufferReadIndex].endY) {
                 StepY(iBuffer[iBufferReadIndex].dirY);
-            } else {
-                if (posX == iBuffer[iBufferReadIndex].endX && posY == iBuffer[iBufferReadIndex].endY) {
-                    // we are Done drawing this line?;
-                    iBufferReadIndex = (iBufferReadIndex + 1) & 63;
-                    drawFunction=0;
-                    linestarted = false;
-                }
             }
         }
     }
 }
 
-FASTRUN void CalculateStep() {
-    stepM1 = false;
-    stepM2 = false;
-    stepM3 = false;
-    stepM4 = false;
-    stepM5 = false;
-
-    posY = M1_pos;
-    posX = M3_pos;
-
-    // check if buffer has data or is empty
-    if (iBufferReadIndex != iBufferWriteIndex) {
-        if (sleeping) {
-            setCurrent(workCurrent);
-            sleeping=false;
-        }
-        if (!linestarted) {
-        // check if this is a connected line or do we 
-        // need to move to a new location ?
-            drawIndex = iBuffer[iBufferReadIndex].index;
-            moveEndX = iBuffer[iBufferReadIndex].startX;
-            moveEndY = iBuffer[iBufferReadIndex].startY;
-
-            if (posX != moveEndX && posY != moveEndY) {
-                drawFunction = 2;
-                moving = true;
-                moveDeltaX = abs(moveEndX - posX);
-                moveDeltaY = -abs(moveEndY - posY);
-                moveDirX = (posX < moveEndX ? 1 : -1);
-                moveDirY = (posY < moveEndY ? 1 : -1);
-                moveError = moveDeltaX + moveDeltaY;
-                if (moveDeltaX > -moveDeltaY) {
-                    moveSteps = (double) moveDeltaX * 0.5;
-                } else {
-                    moveSteps = (double) moveDeltaY * -0.5;
-                }
-            } else {
-                // already at startpos no need to move
-                drawFunction = 3;
-                if (iBuffer[iBufferReadIndex].type == 1) {
-                    // Draw Straight Line
-                }
-                if (iBuffer[iBufferReadIndex].type == 2) {
-                    // Quadratic Bezier
-                    drawError = iBuffer[iBufferReadIndex].error;
-                    drawDeltaX = iBuffer[iBufferReadIndex].deltaX;
-                    drawDeltaY = iBuffer[iBufferReadIndex].deltaY;
-                }
-                StepLoop_speed = 15.0f;
-                moving = false;
-            }
-            moveStep = 0;
-            linestarted = true;
-        }
-        if (moving) {
-        //move to new location
-            double speedramp = min(-fabs(moveSteps - moveStep) + moveSteps,12000.0) / 400.0;
-            StepLoop_speed = max(7.0 + 30.0 - speedramp,7.0);
-            // Serial.println(StepLoop_speed);
-            //  Move in a straight line
-            if (posX != moveEndX && posY != moveEndY) {
-                if (2 * moveError <= moveDeltaX) {
-                    moveError += moveDeltaX;
-                    // stepY??
-                    StepY(moveDirY);
-                }
-                if (2 * moveError >= moveDeltaY) {
-                    moveError += moveDeltaY;
-                    // stepX??
-                    StepX(moveDirX);
-                }
-            } else {
-                // at least x or y has reached its final position, it anything remains, it must be a straight line
-                if (posX != moveEndX) {
-                    StepX(moveDirX);
-                } else {
-                    if (posY != moveEndY) {
-                        StepY(moveDirY);
-                    } else {
-                        if (posX == moveEndX && posY == moveEndY) {
-                            // we have arrived at the start of the line?;
-                            drawFunction = 3;
-                            if (iBuffer[iBufferReadIndex].type == 1) {
-                                // Straight Line
-                            }
-                            if (iBuffer[iBufferReadIndex].type == 2) {
-                                // Quadratic Bezier
-                                drawError = iBuffer[iBufferReadIndex].error;
-                                drawDeltaX = iBuffer[iBufferReadIndex].deltaX;
-                                drawDeltaY = iBuffer[iBufferReadIndex].deltaY;
-                            }
-                            StepLoop_speed = 15.0f;
-                            moving = false;
-                        }
-                    }
-                }
-            }
-            moveStep++;
-        } else {
-            //draw
-            if (iBuffer[iBufferReadIndex].type == 1) {
-                CalculateStraightLine();
-            }
-
-            if (iBuffer[iBufferReadIndex].type == 2) {
-                CalculateQuadBezier();
-            }
-        }
-    } else {
-        if (!sleeping) {
-            sleeping=true;
-            setCurrent(sleepCurrent);
-        }
-
-        //no instructions in buffer right now
-        //reduce current
-        // setCurrent(sleepCurrent);
-    }
-}
-
-FASTRUN void StepHomeLoop() {
-    // wait for proper debounce init time before starting motors!
-    // so we do not get little accumulatings moves when we home
-    // multiple times
-
-    if (!isHome) {
-        // PHASE 1 : Perform steps calculated previous Loop
-        if (stepM1)
-            digitalToggleFast(M1_stepPin);
-        if (stepM2)
-            digitalToggleFast(M2_stepPin);
-        if (stepM3)
-            digitalToggleFast(M3_stepPin);
-        if (stepM4)
-            digitalToggleFast(M4_stepPin);
-        if (stepM5)
-            digitalToggleFast(M5_stepPin);
-
-        if (stepM1) {
-            if (M1_direction) {
-                M1_pos++;
-            } else {
-                M1_pos--;
-            }
-        }
-
-        if (stepM2) {
-            if (M2_direction) {
-                M2_pos++;
-            } else {
-                M2_pos--;
-            }
-        }
-
-        if (stepM3) {
-            if (M3_direction) {
-                M3_pos++;
-            } else {
-                M3_pos--;
-            }
-        }
-
-        // PHASE 2 : Check and Debounce Limit Switches
-        LimitSwitchesBounce();
-
-        if (!isZero) {
-            if (Limit_Y1_start && Limit_Y2_start && Limit_X_start) {
-                isZero = true;
-
-                M1_pos = 0;
-                M2_pos = 0;
-                M3_pos = 0;
-                M1_direction = 1;
-                M2_direction = 1;
-                M3_direction = 1;
-            }
-
-            // PHASE 3 : Calculate future steps for next round
-
-            stepM1 = true;
-            stepM2 = true;
-            stepM3 = true;
-
-        } else {
-            stepM1 = false;
-            stepM2 = false;
-            stepM3 = false;
-            if (M1_pos == 13581 && M2_pos == 13581 && M3_pos == 13581) {
-                isHome = true;
-            } else {
-                if (M1_pos < 13581) {
-                    stepM1 = true;
-                }
-                if (M2_pos < 13581) {
-                    stepM2 = true;
-                }
-                if (M3_pos < 13581) {
-                    stepM3 = true;
-                }
-            }
-        }
-
-        //======== PRE-STEP SET Direction ==========//
-        digitalWriteFast(M1_dirPin, !M1_direction);
-        digitalWriteFast(M2_dirPin, M2_direction);  // reverse mount
-        digitalWriteFast(M3_dirPin, M3_direction);
-        digitalWriteFast(M4_dirPin, M4_direction);
-        digitalWriteFast(M5_dirPin, M5_direction);
-
-        // prevent motors from running past limit switches
-        if (M1_direction) {
-            if (Limit_Y1_end)
-                stepM1 = false;
-        } else {
-            if (Limit_Y1_start)
-                stepM1 = false;
-        }
-
-        if (M2_direction) {
-            if (Limit_Y2_end)
-                stepM2 = false;
-        } else {
-            if (Limit_Y2_start)
-                stepM2 = false;
-        }
-
-        if (M3_direction) {
-            if (Limit_X_end)
-                stepM3 = false;
-        } else {
-            if (Limit_X_start)
-                stepM3 = false;
-        }
-
-        //======== STEP SPEED ==========//
-        if (StepHomeLoop_speed > 50.0f) {
-            StepHomeLoop_speed -= 0.20f;
-        }
-        // calculate the amount of time the future step will take
-        uint32_t cycles = (float)150 * StepHomeLoop_speed - 0.5f;
-        StepLoopTimer.unsafe_update(cycles);
-        debounceCounter += cycles;
-    }
-}
-
-FASTRUN void StepLoop() {
-    // to make steps as continuous as possiple we perform stepping at beginning of this Loop
-    // and after take calculate what to do next round (can take variable amount of time)
-    // PHASE 1 : Perform steps calculated previous Loop
-    // PHASE 2 : Check and Debounce Limit Switches
-    // PHASE 3 : Calculate future steps for next round
-
-    uint32_t starttime = ARM_DWT_CYCCNT;
-
-    // PHASE 1 : Perform steps calculated previous Loop
-    if (stepM1)
-        digitalToggleFast(M1_stepPin);
-    if (stepM2)
-        digitalToggleFast(M2_stepPin);
-    if (stepM3)
-        digitalToggleFast(M3_stepPin);
-    if (stepM4)
-        digitalToggleFast(M4_stepPin);
-    if (stepM5)
-        digitalToggleFast(M5_stepPin);
-
-    if (stepM1) {
-        if (M1_direction) {
-            M1_pos++;
-        } else {
-            M1_pos--;
-        }
-    }
-
-    if (stepM2) {
-        if (M2_direction) {
-            M2_pos++;
-        } else {
-            M2_pos--;
-        }
-    }
-
-    if (stepM3) {
-        if (M3_direction) {
-            M3_pos++;
-        } else {
-            M3_pos--;
-        }
-    }
-
-    if (stepM4) {
-        if (M4_direction) {
-            M4_pos++;
-        } else {
-            M4_pos--;
-        }
-    }
-
-    if (stepM5) {
-        if (M5_direction) {
-            M5_pos++;
-        } else {
-            M5_pos--;
-        }
-    }
-    // PHASE 2 : Check and Debounce Limit Switches
-
-    LimitSwitchesBounce();
-
-    // PHASE 3 : Calculate future steps for next round
-    //======== STEP CALCULATION ==========//
-
-    CalculateStep();
-
-    //======== STEP CALCULATION ==========//
-
-    // prevent motors from running past limit switches
-    if (M1_direction) {
-        if (Limit_Y1_end)
-            stepM1 = false;
-    } else {
-        if (Limit_Y1_start)
-            stepM1 = false;
-    }
-
-    if (M2_direction) {
-        if (Limit_Y2_end)
-            stepM2 = false;
-    } else {
-        if (Limit_Y2_start)
-            stepM2 = false;
-    }
-
-    if (M3_direction) {
-        if (Limit_X_end)
-            stepM3 = false;
-    } else {
-        if (Limit_X_start)
-            stepM3 = false;
-    }
-
-    bool diagonalstep = false;
-    if (stepM1 && stepM2 && stepM3) {
-        diagonalstep = true;
-    }
-
-    //======== PRE-STEP SET Direction ==========//
-
-    // CHECK motor Mouting, if DIRECTION value == 1 motor must move forward
-    //  we can already set the direction for the upcoming step
-    digitalWriteFast(M1_dirPin, !M1_direction);  // reverse mount
-    digitalWriteFast(M2_dirPin, M2_direction);
-    digitalWriteFast(M3_dirPin, M3_direction);
-    digitalWriteFast(M4_dirPin, M4_direction);
-    digitalWriteFast(M5_dirPin, M5_direction);
-
-    //======== STEP SPEED ==========//
-    // for diagonal steps the loop should take SQRT(2) times longer to
-    // maintain constant speed
-
-    // calculate the amount of time the future step will take
-    uint32_t cycles;
-    if (diagonalstep) {
-        cycles = (float)150 * StepLoop_speed * M_SQRT2 - 0.5f;
-    } else {
-        cycles = (float)150 * StepLoop_speed - 0.5f;
-    }
-
-    // new timer values are loaded after the upcoming trigger.
-    StepLoopTimer.unsafe_update(cycles);
-    debounceCounter += cycles;
-
-    // END keep track of time for this IRQ
-    uint32_t endtime = ARM_DWT_CYCCNT;
-    if (endtime - starttime > max_step_cycles && endtime > starttime) {
-        max_step_cycles = endtime - starttime;
-    }
-}
-
-FASTRUN void LimitSwitchesBounce() {
+FASTRUN void DebounceSwitches() {
     // We do a fast press and slow release debounce
     // press debounce is shifted in 8 StepLoops
     // release debounce is performed every 300000 cycles
 
     //======== Fast PRESS DEBOUNCE ==========//
-
     Limit_Y1_start_on_count += digitalReadFast(Limit_Y1_start_pin);
     Limit_Y1_end_on_count += digitalReadFast(Limit_Y1_end_pin);
     Limit_Y2_start_on_count += digitalReadFast(Limit_Y2_start_pin);
@@ -696,6 +652,7 @@ FASTRUN void LimitSwitchesBounce() {
     Limit_X_end_on_count += digitalReadFast(Limit_X_end_pin);
     Limit_Z_start_on_count += digitalReadFast(Limit_Z_start_pin);
     Limit_Z_end_on_count += digitalReadFast(Limit_Z_end_pin);
+    panic_on_count += digitalReadFast(panic_pin);
 
     if (Limit_Y1_start_on_count > 7 && Limit_Y1_start == false) {
         Limit_Y1_start_off_count = __UINT8_MAX__;
@@ -735,7 +692,11 @@ FASTRUN void LimitSwitchesBounce() {
     if (Limit_Z_end_on_count > 7 && Limit_Z_end == false) {
         Limit_Z_end_off_count = __UINT8_MAX__;
         Limit_Z_end = true;
+    }
 
+    if (panic_on_count > 7 && panic_switch== false) {
+        panic_off_count = __UINT8_MAX__;
+        panic_switch = true;
         // PANIC Button! STOPPING ALL MOTORS
         digitalWriteFast(M1_M2_M3_ennPin, 1);
         digitalWriteFast(M4_M5_enPin, 1);
@@ -743,6 +704,7 @@ FASTRUN void LimitSwitchesBounce() {
 
     //======== SLOW RELEASE DEBOUNCE ==========//
     if (debounceCounter > 300000) {  // every 2 ms ?
+        debounceCounter = 0;
         Limit_Y1_start_off_count <<= 1;
         Limit_Y1_start_off_count |= digitalReadFast(Limit_Y1_start_pin);
         Limit_Y1_end_off_count <<= 1;
@@ -762,6 +724,9 @@ FASTRUN void LimitSwitchesBounce() {
         Limit_Z_start_off_count |= digitalReadFast(Limit_Z_start_pin);
         Limit_Z_end_off_count <<= 1;
         Limit_Z_end_off_count |= digitalReadFast(Limit_Z_end_pin);
+
+        panic_off_count <<= 1;
+        panic_off_count |= digitalReadFast(panic_pin);
 
         if (Limit_Y1_start_off_count == 0) {
             Limit_Y1_start = false;
@@ -803,7 +768,10 @@ FASTRUN void LimitSwitchesBounce() {
             Limit_Z_end_on_count = 0;
         }
 
-        debounceCounter = 0;
+        if (panic_off_count == 0) {
+            panic_switch = false;
+            panic_on_count = 0;
+        }
     }
 }
 
@@ -876,6 +844,8 @@ void configureSwitches() {
     pinMode(Limit_X_end_pin, INPUT_PULLUP);
     pinMode(Limit_Z_start_pin, INPUT_PULLUP);
     pinMode(Limit_Z_end_pin, INPUT_PULLUP);
+
+    pinMode(panic_pin, INPUT_PULLUP);
 }
 
 TMC262::STATUS setTMC262Register(uint8_t bytes[3], int CSPIN) {
@@ -910,7 +880,7 @@ void configureStepperDrivers() {
     pinMode(M4_M5_enPin, OUTPUT);
 
     digitalWriteFast(M1_M2_M3_ennPin, 1);  // Inverted input: LOW means enable
-    digitalWriteFast(M4_M5_enPin, 1);      // Regular input:  HIGH means enable
+    digitalWriteFast(M4_M5_enPin, 1);      
 
     pinMode(M1_dirPin, OUTPUT);
     pinMode(M1_stepPin, OUTPUT);
@@ -982,7 +952,7 @@ void configureStepperDrivers() {
     StallGuardConfig.address = 6;
     StallGuardConfig.filter = 0;
     StallGuardConfig.stall_threshold = 4;  // 2s complement 0..63 = 0..63 / 64..127 = -63..-0
-    StallGuardConfig.current_scale = 20;
+    StallGuardConfig.current_scale = 0;
 
     setTMC262Register(StallGuardConfig.bytes, M1_csPin);
     setTMC262Register(StallGuardConfig.bytes, M2_csPin);
@@ -1009,43 +979,40 @@ void configureStepperDrivers() {
     setTMC262Register(DriverControl.bytes, M3_csPin);
 
     // M4,M5 TMC2130 Fystec
-    //  uint8_t d1;
-    //  uint32_t d2;
 
     // Write GCONF
     TMC2130::GCONF globalConfig = {0};
     globalConfig.diag1_stall = 1;
     globalConfig.StealthChop = 0;
     setTMC2130Register(TMC2130::registers::reg_GCONF, globalConfig.data, M4_csPin);
-    setTMC2130Register(TMC2130::registers::reg_GCONF, globalConfig.data, M5_csPin);
+    // setTMC2130Register(TMC2130::registers::reg_GCONF, globalConfig.data, M5_csPin);
 
     // Write CHOPCONF
     TMC2130::CHOPCONF ChopperConfig = {0};
     ChopperConfig.mode = 0;
-    ChopperConfig.mres = 1;    // 256 microsteps
+    ChopperConfig.mres = 0;    // 256 microsteps
     ChopperConfig.dedge = 1;   // double edge step
-    ChopperConfig.vsense = 1;  // fullpower
+    ChopperConfig.vsense = 0;  // 0 = fullpower
     ChopperConfig.blanktime = 2;
     ChopperConfig.hend = 1;
     ChopperConfig.hstart = 4;
     ChopperConfig.toff = 3;
     setTMC2130Register(TMC2130::registers::reg_CHOPCONF, ChopperConfig.data, M4_csPin);
-    setTMC2130Register(TMC2130::registers::reg_CHOPCONF, ChopperConfig.data, M5_csPin);
+    // setTMC2130Register(TMC2130::registers::reg_CHOPCONF, ChopperConfig.data, M5_csPin);
 
     // Write IHOLD_IRUN
     TMC2130::IHOLD_IRUN CurrentControl = {0};
     CurrentControl.IHOLD = 2;
-    CurrentControl.IRUN = 4;
+    CurrentControl.IRUN = 16;
     CurrentControl.IHOLDDELAY = 6;
     setTMC2130Register(TMC2130::registers::reg_IHOLD_IRUN, CurrentControl.data, M4_csPin);
-    delayMicroseconds(1);
-    setTMC2130Register(TMC2130::registers::reg_IHOLD_IRUN, CurrentControl.data, M5_csPin);
+    // setTMC2130Register(TMC2130::registers::reg_IHOLD_IRUN, CurrentControl.data, M5_csPin);
 
     // Write TPOWERDOWN
     TMC2130::TPOWERDOWN PowerdownDelay = {0};
     PowerdownDelay.TPOWERDOWN = 10;
     setTMC2130Register(TMC2130::registers::reg_TPOWERDOWN, PowerdownDelay.data, M4_csPin);
-    setTMC2130Register(TMC2130::registers::reg_TPOWERDOWN, PowerdownDelay.data, M5_csPin);
+    // setTMC2130Register(TMC2130::registers::reg_TPOWERDOWN, PowerdownDelay.data, M5_csPin);
 
     /*
     //READ GCONF
