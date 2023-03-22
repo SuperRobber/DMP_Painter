@@ -58,11 +58,16 @@ extern volatile enum State  activeState;
 extern volatile enum State  requestedState;
 
 //======== CIRCULAR Buffer for drawinstructions ==========//
-extern volatile DrawInstruction iBuffer[64];  // use power of 2 size so I can use & in stead of modulo // ex tailIndex = (tailIndex + 1) & 63;
+
+/// @brief Circular buffer for drawing instructions
+/// @attention use power of 2 size so I can use & in stead of modulo.
+/// e.g. tailIndex = (tailIndex + 1) & 63;
+extern volatile DrawInstruction iBuffer[64];  
+
 extern volatile uint8_t iBufferWriteIndex;
 extern volatile uint8_t iBufferReadIndex;
 extern volatile int64_t requestedInstruction;
-extern volatile int64_t recievedInstruction;
+extern volatile int64_t receivedInstruction;
 
 // extern volatile uint32_t plotter_pos_x;
 // extern volatile uint32_t plotter_pos_y;
@@ -106,8 +111,18 @@ extern volatile int32_t drawIndex;
 
 FASTRUN void MachineLoop();
 FASTRUN void CalculateHomeSteps();
+
+/// @brief Perform Motor Steps that are calculated in previous iteration
+/// and updates position variables.
+/// @return 
 FASTRUN void StepMotors();
+
+/// @brief Set PRE-STEP Directions and check LIMIT switches, 
+/// disables steps if limits are hit.
+/// @attention FASTRUN in interrupt 
+/// @return
 FASTRUN void SetDirectionsAndLimits();
+
 FASTRUN void CalculateDrawSteps();
 FASTRUN void DebounceSwitches();
 FASTRUN void StepX(int8_t dir);

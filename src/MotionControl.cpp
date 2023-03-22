@@ -1,4 +1,4 @@
-#include "MotionControl.h"linestarted
+#include "MotionControl.h"
 
 #include <SPI.h>
 
@@ -7,8 +7,9 @@ volatile enum Action currentAction = action_none;
 volatile enum State activeState = state_none;
 volatile enum State requestedState = state_none;
 
-//======== CIRCULAR Buffer for draw instructions ==========//
-volatile DrawInstruction iBuffer[64];  // use power of 2 size so I can use & in stead of modulo // ex tailIndex = (tailIndex + 1) & 63;
+// ======== CIRCULAR Buffer for draw instructions ==========//
+
+volatile DrawInstruction iBuffer[64]; 
 volatile uint8_t iBufferWriteIndex = 0;
 volatile uint8_t iBufferReadIndex = 0;
 volatile int64_t requestedInstruction = -1;
@@ -202,7 +203,7 @@ FASTRUN void MachineLoop() {
                     iBufferReadIndex = (iBufferReadIndex + 1) & 63;
                     drawFunction = 0;
                     lineStarted = false;
-                    currentAction=action_none;
+                    // currentAction=action_none;
 
                     // do we need to pause now ?
                     if (requestedState == state_none) {
@@ -215,8 +216,6 @@ FASTRUN void MachineLoop() {
             // check if buffer has data or is empty
             if (iBufferReadIndex != iBufferWriteIndex) {
                 //do we need to start a new line ?
-
-
 
                 if (sleeping) {
                     setCurrent(workCurrent);
@@ -375,6 +374,7 @@ FASTRUN void StepMotors() {
     //     M5_pos += M5_direction;
     // }
 }
+
 
 FASTRUN void SetDirectionsAndLimits() {
     if (M1_direction == 1) {

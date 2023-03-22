@@ -39,7 +39,7 @@ union byte64 {
 };
 
 // int64_t requestedInstruction = -1;
-// int64_t recievedInstruction = -1;
+// int64_t receivedInstruction = -1;
 int requestCounter = 0;
 
 //======== Serial Binary Protocol ==========//
@@ -97,7 +97,7 @@ void loop() {
             // do we have room in the buffer ?
             if (((iBufferWriteIndex + 1) & 63) != iBufferReadIndex) {
                 // have we received our latest request ?
-                if (recievedInstruction == requestedInstruction) {
+                if (receivedInstruction == requestedInstruction) {
                     // yes, lets request a new instruction to add into the buffer
                     requestedInstruction++;
                     Serial.print("@");
@@ -378,7 +378,7 @@ void getSerial(int bytesToRead) {
                             iBuffer[iBufferWriteIndex].steps = b64.value;
 
                             iBufferWriteIndex = (iBufferWriteIndex + 1) & 63;
-                            recievedInstruction = receivedIndex.value;
+                            receivedInstruction = receivedIndex.value;
 
                             // we already checked this before sending a request
                             if (((iBufferWriteIndex + 1) & 63) != iBufferReadIndex) {
