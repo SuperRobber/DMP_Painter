@@ -55,6 +55,7 @@ byte serialMessageData[250];  // reserve 250bytes for serialmessage data
 int serialHomeHeaderCount = 0;
 int serialPauseHeaderCount = 0;
 int serialHeightMapHeaderCount = 0;
+int serialClearHeightMapHeaderCount = 0;
 int serialResetHeaderCount = 0;
 int serialDrawHeaderCount = 0;
 int serialEOFHeaderCount = 0;
@@ -72,12 +73,16 @@ void setup() {
     SPI.begin();
 
     // playVictorySound(AudioPin);
-    playBeep(AudioPin);
+    // playBeep(AudioPin);
+
+    delay(100);
 
     configureSwitches();
     configureStepperDrivers();
 
-    playBeep(AudioPin);
+    delay(100);
+
+    // playBeep(AudioPin);
     StartUp();
 }
 
@@ -240,6 +245,7 @@ void getSerial(int bytesToRead) {
         if (bytebuffer[i] == 0xF3) {
             if (serialHeightMapHeaderCount == 9) {
                 Serial.println("Received HeightMap command");
+                requestedState=state_mapheight;
                 serialHeightMapHeaderCount = 0;
             } else {
                 serialHeightMapHeaderCount++;
@@ -272,6 +278,19 @@ void getSerial(int bytesToRead) {
             }
         } else {
             serialEOFHeaderCount = 0;
+        }
+
+        //// check for epf command (start 10 x 0xF5)
+        if (bytebuffer[i] == 0xF6) {
+            if (serialClearHeightMapHeaderCount == 9) {
+                Serial.println("Received Clear Height command");
+                requestedState=state_clearheight;
+                serialClearHeightMapHeaderCount = 0;
+            } else {
+                serialClearHeightMapHeaderCount++;
+            }
+        } else {
+            serialClearHeightMapHeaderCount = 0;
         }
 
         //// check for instructions (start 10 x 0xFF)

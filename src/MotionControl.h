@@ -5,6 +5,7 @@
 #include "RoboTimer.h"
 #include "TMC_Registers.h"
 
+extern volatile int64_t HeightMap[24];
 
 struct DrawInstruction {
     int64_t index;
@@ -12,7 +13,7 @@ struct DrawInstruction {
     int8_t dirX;
     int8_t dirY;
     int64_t startX;
-    int64_t startY;
+    int64_t startY;;
     int64_t endX;
     int64_t endY;
     int64_t deltaX;
@@ -33,8 +34,9 @@ enum State {
     state_idle=4,
     state_panic=5,
     state_eof=6,
-    state_reset=6,
-    state_heightmap=10
+    state_reset=7,
+    state_mapheight=10,
+    state_clearheight=11
 };
 
 enum Action {

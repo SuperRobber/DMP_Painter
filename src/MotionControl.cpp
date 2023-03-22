@@ -1,4 +1,4 @@
-#include "MotionControl.h"
+#include "MotionControl.h"linestarted
 
 #include <SPI.h>
 
@@ -7,16 +7,16 @@ volatile enum Action currentAction = action_none;
 volatile enum State activeState = state_none;
 volatile enum State requestedState = state_none;
 
-//======== CIRCULAR Buffer for drawinstructions ==========//
+//======== CIRCULAR Buffer for draw instructions ==========//
 volatile DrawInstruction iBuffer[64];  // use power of 2 size so I can use & in stead of modulo // ex tailIndex = (tailIndex + 1) & 63;
 volatile uint8_t iBufferWriteIndex = 0;
 volatile uint8_t iBufferReadIndex = 0;
 volatile int64_t requestedInstruction = -1;
-volatile int64_t recievedInstruction = -1;
+volatile int64_t receivedInstruction = -1;
 
 // drawing vars
 bool moving = true;
-bool linestarted = false;
+bool lineStarted = false;
 int64_t drawDeltaX = 0;
 int64_t drawDeltaY = 0;
 int64_t drawError = 0;
@@ -34,7 +34,7 @@ double moveStep = 0;
 int64_t posX = 0;
 int64_t posY = 0;
 
-uint64_t sleeptimer = 0;
+uint64_t sleepTimer = 0;
 
 int workCurrent = 20;
 int sleepCurrent = 0;
@@ -174,31 +174,34 @@ void StartUp() {
     //======== Configure Interrupt Timer ===//
     CCM_CSCMR1 &= ~CCM_CSCMR1_PERCLK_CLK_SEL;  // 150Mhz PIT clock
     requestedState = state_home;
-    linestarted = false;
+    lineStarted = false;
     IRQTimer.priority(16);
     IRQTimer.begin(MachineLoop, machineSpeed);
 }
 
 FASTRUN void MachineLoop() {
-    // to make steps as continuStepMotorsous as possiple we perform stepping at beginning of this each Loop
+    // to make steps as continuous as possible we perform stepping at beginning of this each Loop
     // and after take calculate what to do next round (can take variable amount of time)
-    // to make steps as continuous as possiple we perform stepping at beginning of this Loop
+    // to make steps as continuous as possible we perform stepping at beginning of this Loop
     // and after take calculate what to do next round (can take variable amount of time)
 
     uint32_t starttime = ARM_DWT_CYCCNT;
 
     switch (activeState) {
         case state_draw: {
-            StepMotors();  // Perform Motor Steps (calculated in previous Iteration) AND update positions ==========//
-            stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false; //reset steps for next iteration
+            // Perform Motor Steps (calculated in previous Iteration) AND update positions ==========//
+            StepMotors();  
+
+            //reset steps for next iteration
+            stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false; 
 
             // steps made, positions updated check for end of line
-            if (linestarted) {
+            if (lineStarted) {
                 if (posX == iBuffer[iBufferReadIndex].endX && posY == iBuffer[iBufferReadIndex].endY) {
                     // we are Done drawing current line!
                     iBufferReadIndex = (iBufferReadIndex + 1) & 63;
                     drawFunction = 0;
-                    linestarted = false;
+                    lineStarted = false;
                     currentAction=action_none;
 
                     // do we need to pause now ?
@@ -223,7 +226,7 @@ FASTRUN void MachineLoop() {
                     SetDirectionsAndLimits();  // Set PRE-STEP Direction &&& Check LIMITS
                     machineSpeed = drawSpeed;
                 }
-                sleeptimer = 0;
+                sleepTimer = 0;
 
             } else {
                 if (requestedState == state_eof) {
@@ -231,11 +234,11 @@ FASTRUN void MachineLoop() {
                     activeState = state_none;
                 } else {
                     if (!sleeping) {
-                        sleeptimer++;
-                        if (sleeptimer > 50000) {
+                        sleepTimer++;
+                        if (sleepTimer > 50000) {
                             sleeping = true;
                             setCurrent(sleepCurrent);
-                            sleeptimer = 0;
+                            sleepTimer = 0;
                         }
                     }
                     machineSpeed = 100.0f;
@@ -264,11 +267,11 @@ FASTRUN void MachineLoop() {
         case state_none: {
             if (requestedState == state_none) {
                 if (!sleeping) {
-                    sleeptimer++;
-                    if (sleeptimer > 50000) {
+                    sleepTimer++;
+                    if (sleepTimer > 50000) {
                         sleeping = true;
                         setCurrent(sleepCurrent);
-                        sleeptimer = 0;
+                        sleepTimer = 0;
                     }
                 }
             }
@@ -276,7 +279,7 @@ FASTRUN void MachineLoop() {
             if (requestedState == state_draw) {
                 if (sleeping) {
                     sleeping = false;
-                    sleeptimer = 0;
+                    sleepTimer = 0;
                     setCurrent(workCurrent);
                 }
                 stepM1 = false;
@@ -292,7 +295,7 @@ FASTRUN void MachineLoop() {
                 iBufferReadIndex=0;
                 iBufferWriteIndex=0;
                 requestedInstruction = -1;
-                recievedInstruction = -1;
+                receivedInstruction = -1;
                 drawIndex=0;
                 requestedState = state_none;
                 // activeState = state_none;
@@ -304,7 +307,7 @@ FASTRUN void MachineLoop() {
 
                 if (sleeping) {
                     sleeping = false;
-                    sleeptimer = 0;
+                    sleepTimer = 0;
                     setCurrent(workCurrent);
                 }
 
@@ -319,6 +322,10 @@ FASTRUN void MachineLoop() {
             machineSpeed = 100.0f;
             break;
         }
+        default: {
+            break;
+        }
+    
     }
     // Debounce Switches
     DebounceSwitches();
@@ -329,7 +336,7 @@ FASTRUN void MachineLoop() {
 
     uint32_t cycles;
     if (stepM1 && stepM2 && stepM3) {
-        // diagonalstep
+        // diagonal step
         cycles = (uint32_t)(150.0f * machineSpeed * M_SQRT2 - 0.5f);
     } else {
         cycles = (uint32_t)(150.0f * machineSpeed - 0.5f);
@@ -459,7 +466,7 @@ FASTRUN void CalculateHomeSteps() {
 FASTRUN void CalculateDrawSteps() {
     posY = M1_pos;
     posX = M3_pos;
-    if (!linestarted) {
+    if (!lineStarted) {
         // check if this is a connected line or do we
         // need to move to a new location ?
         drawIndex = iBuffer[iBufferReadIndex].index;
@@ -480,7 +487,7 @@ FASTRUN void CalculateDrawSteps() {
             drawFunction = 2;
             moving = true;
         } else {
-            // already at startpos no need to move
+            // already at start pos no need to move
             if (iBuffer[iBufferReadIndex].type == 1) {
                 // Draw Straight Line
             }
@@ -495,13 +502,13 @@ FASTRUN void CalculateDrawSteps() {
             moving = false;
         }
         moveStep = 0;
-        linestarted = true;
+        lineStarted = true;
     }
 
     if (moving) {
         // move to new location
-        double speedramp = min(-fabs(moveSteps - moveStep) + moveSteps, 12000.0) / 400.0;
-        drawSpeed = max(7.0 + 30.0 - speedramp, 7.0);
+        double speedRamp = min(-fabs(moveSteps - moveStep) + moveSteps, 12000.0) / 400.0;
+        drawSpeed = max(7.0 + 30.0 - speedRamp, 7.0);
         //  Move in a straight line
         if (posX != moveEndX && posY != moveEndY) {
             if (2 * moveError <= moveDeltaX) {
@@ -861,12 +868,12 @@ TMC262::STATUS setTMC262Register(uint8_t bytes[3], int CSPIN) {
     return st;
 }
 
-TMC2130::SPI_STATUS setTMC2130Register(uint8_t adress, uint32_t data, int CSPIN) {
+TMC2130::SPI_STATUS setTMC2130Register(uint8_t address, uint32_t data, int CSPIN) {
     TMC2130::SPI_STATUS st = {0};
     SPI1.beginTransaction(tmc2130_spi_config);
     digitalWriteFast(CSPIN, 0);
     delayNanoseconds(spi_cs_delay);
-    st.value = SPI1.transfer(adress | 0x80);
+    st.value = SPI1.transfer(address | 0x80);
     SPI1.transfer32(data);
     digitalWriteFast(CSPIN, 1);
     SPI1.endTransaction();
@@ -1002,9 +1009,9 @@ void configureStepperDrivers() {
 
     // Write IHOLD_IRUN
     TMC2130::IHOLD_IRUN CurrentControl = {0};
-    CurrentControl.IHOLD = 2;
+    CurrentControl.IHOLD = 0;
     CurrentControl.IRUN = 16;
-    CurrentControl.IHOLDDELAY = 6;
+    CurrentControl.IHOLDDELAY = 15;
     setTMC2130Register(TMC2130::registers::reg_IHOLD_IRUN, CurrentControl.data, M4_csPin);
     // setTMC2130Register(TMC2130::registers::reg_IHOLD_IRUN, CurrentControl.data, M5_csPin);
 
