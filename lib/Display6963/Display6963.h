@@ -5,12 +5,13 @@
 // #include <SdFat.h>
 // #include "font.h"
 
-extern uint8_t screen_buffer[32*64];
+extern uint8_t screen_buffer[32 * 64];
 // extern uint8_t bitmapfont_8x8 [16*128];
 // extern uint8_t bitmapfont_16x24 [32*288];
 extern uint16_t lcd_drawstep;
 
-struct Sprite {
+struct Sprite
+{
   uint8_t width;
   uint8_t height;
   uint8_t xpos;
@@ -23,15 +24,15 @@ void setPixel(uint8_t x, uint8_t y);
 void clearPixel(uint8_t x, uint8_t y);
 
 void drawSprite(Sprite s);
-void drawChar(uint8_t font[],int charindex,int xpos, int ypos, bool inverse);
-void drawBigChar(uint8_t font[],int charindex,int xpos, int ypos);
+void drawChar(uint8_t font[], int charindex, int xpos, int ypos, bool inverse);
+void drawBigChar(uint8_t font[], int charindex, int xpos, int ypos);
 
-void drawText(uint8_t x, uint8_t y, String text, uint8_t font[], bool inverse=false);
-void drawTextBig(uint8_t x, uint8_t y, String text, uint8_t font[], bool inverse=false);
+void drawText(uint8_t x, uint8_t y, String text, uint8_t font[], bool inverse = false);
+void drawTextBig(uint8_t x, uint8_t y, String text, uint8_t font[], bool inverse = false);
 
 void drawSquare(uint8_t x_start, uint8_t y_start, uint8_t x_end, uint8_t y_end);
 void drawFrame(uint8_t x_start, uint8_t y_start, uint8_t x_end, uint8_t y_end);
-void drawLine(uint8_t x_start, uint8_t y_start, uint8_t x_end, uint8_t y_end,bool inverse=false);
+void drawLine(uint8_t x_start, uint8_t y_start, uint8_t x_end, uint8_t y_end, bool inverse = false);
 
 void drawScreen();
 void drawScreenStep();
