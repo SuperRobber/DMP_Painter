@@ -14,20 +14,34 @@ elapsedMicros drawTimeout;
 // const int lcd_writePin = 22;
 
 /// A module to measure powerusage (ampere) is connected via SPI0
-const int powersense_cs_Pin = 34;
-SPISettings spi_powersense_config(16000000, MSBFIRST, SPI_MODE0);
+const int powerSenseCSPin = 34;
+SPISettings spiPowerSenseConfig(16000000, MSBFIRST, SPI_MODE0);
 int32_t powerSenseData = 0;
 
 /// @brief Union to convert int32 to bytearray.
-union byte32 {
+union byte32
+{
     int32_t value;
     byte bytes[4];
 };
 
 /// @brief Union to convert int64 to bytearray.
-union byte64 {
+union byte64
+{
     int64_t value;
     byte bytes[8];
+};
+
+enum command
+{
+    BYTE_HOME = 0xF0,
+    BYTE_DRAW = 0xF1,
+    BYTE_RESET = 0xF2,
+    BYTE_MAPHEIGHT = 0xF3,
+    BYTE_PAUSE = 0xF4,
+    BYTE_EOF = 0xF5,
+    BYTE_CLEARHEIGHT = 0xF6,
+    BYTE_DRAW_INSTRUCTION = 0xFF
 };
 
 /// ---------------------------------------------------------------------------
@@ -86,8 +100,8 @@ void setup()
     Serial.begin(115200);
 
     //  pinMode(AudioPin, OUTPUT);
-    pinMode(powersense_cs_Pin, OUTPUT);
-    digitalWriteFast(powersense_cs_Pin, HIGH);
+    pinMode(powerSenseCSPin, OUTPUT);
+    digitalWriteFast(powerSenseCSPin, HIGH);
 
     // PowerSense on SPI0
     SPI.begin();
@@ -158,10 +172,10 @@ void loop()
             String status = "";
 
             /// Read powersense module
-            SPI.beginTransaction(spi_powersense_config);
-            digitalWriteFast(powersense_cs_Pin, LOW);
+            SPI.beginTransaction(spiPowerSenseConfig);
+            digitalWriteFast(powerSenseCSPin, LOW);
             powerSenseData = SPI.transfer16(0);
-            digitalWriteFast(powersense_cs_Pin, HIGH);
+            digitalWriteFast(powerSenseCSPin, HIGH);
             SPI.endTransaction();
 
             /// Check steppermotor drives for error and update status flags.
@@ -240,18 +254,15 @@ void getSerial(int bytesToRead)
     // iterate over all the bytes
     for (int i = 0; i < bytesToRead; i++)
     {
-        //// check for home command (start 10 x 0xF0)
-        if (bytebuffer[i] == 0xF0)
+        //// check for HOME command header (10 x 0xF0)
+        if (bytebuffer[i] == command::BYTE_HOME)
         {
-            if (serialHomeHeaderCount == 9)
+            serialHomeHeaderCount++;
+            if (serialHomeHeaderCount == 10)
             {
                 Serial.println("Received Home command");
                 requestedState = state_home;
                 serialHomeHeaderCount = 0;
-            }
-            else
-            {
-                serialHomeHeaderCount++;
             }
         }
         else
@@ -259,18 +270,15 @@ void getSerial(int bytesToRead)
             serialHomeHeaderCount = 0;
         }
 
-        //// check for Draw command (start 10 x 0xF1)
-        if (bytebuffer[i] == 0xF1)
+        //// check for DRAW command header (10 x 0xF1)
+        if (bytebuffer[i] == command::BYTE_DRAW)
         {
-            if (serialDrawHeaderCount == 9)
+            serialDrawHeaderCount++;
+            if (serialDrawHeaderCount == 10)
             {
                 Serial.println("Received Draw command");
                 requestedState = state_draw;
                 serialDrawHeaderCount = 0;
-            }
-            else
-            {
-                serialDrawHeaderCount++;
             }
         }
         else
@@ -278,18 +286,15 @@ void getSerial(int bytesToRead)
             serialDrawHeaderCount = 0;
         }
 
-        //// check for Reset command (start 10 x 0xF2)
-        if (bytebuffer[i] == 0xF2)
+        /// Check for RESET command header.
+        if (bytebuffer[i] == command::BYTE_RESET)
         {
-            if (serialResetHeaderCount == 9)
+            serialResetHeaderCount++;
+            if (serialResetHeaderCount == 10)
             {
                 Serial.println("Received Reset command");
                 requestedState = state_reset;
                 serialResetHeaderCount = 0;
-            }
-            else
-            {
-                serialResetHeaderCount++;
             }
         }
         else
@@ -297,18 +302,15 @@ void getSerial(int bytesToRead)
             serialResetHeaderCount = 0;
         }
 
-        //// check for HeightMap command (start 10 x 0xF3)
-        if (bytebuffer[i] == 0xF3)
+        /// Check for MAPHEIGHT command header.
+        if (bytebuffer[i] == command::BYTE_MAPHEIGHT)
         {
-            if (serialHeightMapHeaderCount == 9)
+            serialHeightMapHeaderCount++;
+            if (serialHeightMapHeaderCount == 10)
             {
                 Serial.println("Received HeightMap command");
                 requestedState = state_mapheight;
                 serialHeightMapHeaderCount = 0;
-            }
-            else
-            {
-                serialHeightMapHeaderCount++;
             }
         }
         else
@@ -316,18 +318,15 @@ void getSerial(int bytesToRead)
             serialHeightMapHeaderCount = 0;
         }
 
-        //// check for pause command (start 10 x 0xF4)
-        if (bytebuffer[i] == 0xF4)
+        /// Check for PAUSE command header.
+        if (bytebuffer[i] == command::BYTE_PAUSE)
         {
-            if (serialPauseHeaderCount == 9)
+            serialPauseHeaderCount++;
+            if (serialPauseHeaderCount == 10)
             {
                 Serial.println("Received Pause command");
                 requestedState = state_none;
                 serialPauseHeaderCount = 0;
-            }
-            else
-            {
-                serialPauseHeaderCount++;
             }
         }
         else
@@ -335,18 +334,15 @@ void getSerial(int bytesToRead)
             serialPauseHeaderCount = 0;
         }
 
-        //// check for eof command (start 10 x 0xF5)
-        if (bytebuffer[i] == 0xF5)
+        /// Check for EOF command header.
+        if (bytebuffer[i] == command::BYTE_EOF)
         {
-            if (serialEOFHeaderCount == 9)
+            serialEOFHeaderCount++;
+            if (serialEOFHeaderCount == 10)
             {
                 Serial.println("Received EOF command");
                 requestedState = state_eof;
                 serialEOFHeaderCount = 0;
-            }
-            else
-            {
-                serialEOFHeaderCount++;
             }
         }
         else
@@ -354,18 +350,15 @@ void getSerial(int bytesToRead)
             serialEOFHeaderCount = 0;
         }
 
-        //// check for Clear Height command (start 10 x 0xF6)
-        if (bytebuffer[i] == 0xF6)
+        //// Check for CLEARHEIGHT command header.
+        if (bytebuffer[i] == command::BYTE_CLEARHEIGHT)
         {
-            if (serialClearHeightMapHeaderCount == 9)
+            serialClearHeightMapHeaderCount++;
+            if (serialClearHeightMapHeaderCount == 10)
             {
                 Serial.println("Received Clear Height command");
                 requestedState = state_clearheight;
                 serialClearHeightMapHeaderCount = 0;
-            }
-            else
-            {
-                serialClearHeightMapHeaderCount++;
             }
         }
         else
@@ -373,56 +366,58 @@ void getSerial(int bytesToRead)
             serialClearHeightMapHeaderCount = 0;
         }
 
-        //// check for instructions (start 10 x 0xFF)
+        //// check for DRAW_INSTRUCTION header.
         if (!serialInstructionStarted)
         {
             if (serialInstructionHeaderCount == 10)
             {
-                // we have read exactly 10 startbytes (0xFF)
+                /// 10 DRAW_INSTRUCTION header bytes have been read in a row.
+                /// The following bytes belongs to a draw instruction and the
+                /// current byte (11) is the MessageSize.
                 serialInstructionStarted = true;
                 serialMessageSize = bytebuffer[i];
                 serialMessageByteCount = 0;
                 serialMessageChecksumByteCount = 0;
                 serialMessageReceivedChecksum.value = 0;
             }
+
+            if (bytebuffer[i] == command::BYTE_DRAW_INSTRUCTION)
+            {
+                serialInstructionHeaderCount++;
+            }
             else
             {
-                if (bytebuffer[i] == 0xFF)
-                {
-                    serialInstructionHeaderCount++;
-                }
-                else
-                {
-                    // we did not receive a correct header, reset check
-                    serialInstructionHeaderCount = 0;
-                }
+                serialInstructionHeaderCount = 0;
             }
         }
         else
         {
             if (serialMessageByteCount < serialMessageSize)
             {
-                // add byte to our checksum
+                // Add byte to the checksum.
                 serialMessageCalculatedChecksum += bytebuffer[i];
+                // Add byte to the message.
                 serialMessageData[serialMessageByteCount] = bytebuffer[i];
+                // Increment message byte count.
                 serialMessageByteCount++;
             }
             else
             {
-                // we should have received a complete message now, verify the checksum
-                // the next 4 bytes are the checksum
+                /// A complete message should have been received.
+                /// The next 4 bytes are the checksum. 
 
                 serialMessageReceivedChecksum.bytes[serialMessageChecksumByteCount] = bytebuffer[i];
                 serialMessageChecksumByteCount++;
 
                 if (serialMessageChecksumByteCount == 3)
                 {
+                    /// Verify the checksum.
                     if (serialMessageReceivedChecksum.value == serialMessageCalculatedChecksum)
                     {
-                        // get Index
+                        /// Valid draw instruction received.
+
+                        /// Copy the instruction index
                         byte64 receivedIndex = {};
-                        // memcpy(receivedIndex.bytes, bytebuffer + 11, 8);
-                        // nope we shoud use our serialMessageDATA!
                         memcpy(receivedIndex.bytes, serialMessageData, 8);
 
                         Serial.print("Received #");
@@ -435,12 +430,14 @@ void getSerial(int bytesToRead)
 
                         if (receivedIndex.value == requestedInstruction)
                         {
-                            // All is good we have the requested instruction
-                            // Write it to the current index!
-                            byte64 b64 = {};
+                            /// Instruction indices match.
+                            /// The requested instruction has been received correctly.
 
-                            // grab all bytes and put them into drawinstruction struct
-                            // remember we interleaved bytes with zero bytes as binary protocol
+                            /// Parse values directly into a new drawInstruction in our drawInstructionBuffer.
+                            /// @attention Interleave values with a zero byte as part of the binary protocol
+
+                            /// A byte64 union is used to convert 8 bytes to int64.
+                            byte64 b64 = {};
 
                             memcpy(b64.bytes, serialMessageData, 8);
                             iBuffer[iBufferWriteIndex].index = b64.value;
@@ -470,15 +467,16 @@ void getSerial(int bytesToRead)
                             memcpy(b64.bytes, serialMessageData + 105, 8);
                             iBuffer[iBufferWriteIndex].steps = b64.value;
 
+                            // Increment the bufferWriteIndex for an upcoming instruction.
                             iBufferWriteIndex = (iBufferWriteIndex + 1) & 63;
+                            
+                            // Finally confirm the processed instuction.
                             receivedInstruction = receivedIndex.value;
-
-                            // we already checked this before sending a request
-                            // if (((iBufferWriteIndex + 1) & 63) != iBufferReadIndex) {
-                            // }
                         }
                         else
                         {
+                            /// A valid drawInstuction was received. But it did
+                            /// not have the rihgt index.
                             Serial.print("But index ");
                             Serial.print(receivedIndex.value);
                             Serial.println(" does not match!");
@@ -493,6 +491,7 @@ void getSerial(int bytesToRead)
                     }
                     else
                     {
+                        /// The checksum did not match.
                         Serial.print("Received data, checksum ");
                         Serial.print(serialMessageCalculatedChecksum);
                         Serial.println(" is bad! message corrupt ?");
@@ -502,7 +501,7 @@ void getSerial(int bytesToRead)
                         Serial.println("@ requesting instruction ");
                     }
 
-                    // restart
+                    // Reset variables for an upcoming instruction.
                     serialInstructionStarted = false;
                     serialInstructionHeaderCount = 0;
                     serialMessageByteCount = 0;
