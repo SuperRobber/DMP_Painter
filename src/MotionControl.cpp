@@ -142,14 +142,17 @@ const int M5_csPin = 19;
 // Hardware interrupt (PIR) TIMER triggering MachineLoop Interrupt.
 RoboTimer IRQTimer;
 
-/// @brief intterrupt iteration time (speed) when drawing.
+/// Interrupt iteration times (speeds).
+float moveSpeed = 15.0f;
 float drawSpeed = 15.0f;
-
-/// @brief intterrupt iteration time (speed) when homing.
 float homeSpeed = 100.0f;
+float normalSpeed = 100.0f;
 
-/// @brief intterrupt iteration time (speed).
-float machineSpeed = 100.0f;
+/// @brief Interrupt iteration time (speed).
+/// Interrupt type is always set to machineSpeed,
+/// where machine speed is set depending on different
+/// operations.
+float machineSpeed = normalSpeed;
 
 /// Track interrupt performance.
 /// Measur highest MachineLoop interrupt time.
@@ -200,8 +203,9 @@ void StartUp()
     requestedState = state_home;
     lineStarted = false;
 
-    /// ======== Configure Interrupt Timer === ///
-    CCM_CSCMR1 &= ~CCM_CSCMR1_PERCLK_CLK_SEL; // 150Mhz PIT clock
+    /// Configure interrupt timer
+    /// 150Mhz PIT timer clock
+    CCM_CSCMR1 &= ~CCM_CSCMR1_PERCLK_CLK_SEL; 
     IRQTimer.priority(16);
     IRQTimer.begin(MachineLoop, machineSpeed);
 }
@@ -222,7 +226,7 @@ FASTRUN void MachineLoop()
         /// Reset step trigger and start next iteration.
         stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
 
-        /// Check for end of line.
+        /// Check for end of line and Pause at end of line.
         if (lineStarted)
         {
             if (posX == iBuffer[iBufferReadIndex].endX && posY == iBuffer[iBufferReadIndex].endY)
@@ -245,18 +249,18 @@ FASTRUN void MachineLoop()
         /// Are there active or new instructions that need to be drawn ?
         if (iBufferReadIndex != iBufferWriteIndex)
         {
+            /// Calculate movement for the next step.
+            CalculateDrawSteps();
+            SetDirectionsAndLimits();
+
+            machineSpeed = drawSpeed;
+
             if (sleeping)
             {
                 /// Wake up
                 setCurrent(workCurrent);
                 sleeping = false;
             }
-
-            /// Calculate movement for the next step.
-            CalculateDrawSteps();
-            SetDirectionsAndLimits();
-
-            machineSpeed = drawSpeed;
             sleepTimer = 0;
         }
         else
@@ -301,44 +305,42 @@ FASTRUN void MachineLoop()
 
             CalculateHomeSteps();
             SetDirectionsAndLimits(); // Set PRE-STEP Direction &&& Check LIMITS
+
+            machineSpeed = homeSpeed;
+
+            if (sleeping)
+            {
+                /// Wake up
+                setCurrent(workCurrent);
+                sleeping = false;
+            }
+            sleepTimer = 0;
         }
         else
         {
             if (requestedState == state_home)
                 requestedState = state_none;
+
             activeState = state_none;
-            // if (requestedState == state_draw) {
-            //     activeState = state_draw;
-            // }
-            // if (requestedState == state_none) activeState = state_none;
         }
-        machineSpeed = homeSpeed;
         break;
     }
     case state_none:
     {
-        if (requestedState == state_none)
+        if (!sleeping)
         {
-            if (!sleeping)
+            sleepTimer++;
+            if (sleepTimer > 50000)
             {
-                sleepTimer++;
-                if (sleepTimer > 50000)
-                {
-                    sleeping = true;
-                    setCurrent(sleepCurrent);
-                    sleepTimer = 0;
-                }
+                sleeping = true;
+                setCurrent(sleepCurrent);
             }
+        } else {
+            sleepTimer = 0;
         }
 
         if (requestedState == state_draw)
         {
-            if (sleeping)
-            {
-                sleeping = false;
-                sleepTimer = 0;
-                setCurrent(workCurrent);
-            }
             stepM1 = false;
             stepM2 = false;
             stepM3 = false;
@@ -356,21 +358,12 @@ FASTRUN void MachineLoop()
             receivedInstruction = -1;
             drawIndex = 0;
             requestedState = state_none;
-            // activeState = state_none;
         }
 
         if (requestedState == state_home)
         {
             isHome = false;
             isZero = false;
-
-            if (sleeping)
-            {
-                sleeping = false;
-                sleepTimer = 0;
-                setCurrent(workCurrent);
-            }
-
             stepM1 = false;
             stepM2 = false;
             stepM3 = false;
@@ -387,12 +380,12 @@ FASTRUN void MachineLoop()
         break;
     }
     }
-    
+
     /// Debounce Switches and set button press or release triggers
     DebounceSwitches();
 
-    /// Set STEP SPEED (Intertupt time) for next Iteration. 
-    /// In case of a diagonal steps the loop should take SQRT(2) times 
+    /// Set STEP SPEED (Intertupt time) for next Iteration.
+    /// In case of a diagonal steps the loop should take SQRT(2) times
     /// longer to maintain constant speed.
 
     uint32_t cycles;
