@@ -1,5 +1,5 @@
 #include "MotionControl.h"
-
+#include <EEPROM.h>
 #include <SPI.h>
 
 // volatile enum Action currentAction = action_none;
@@ -16,6 +16,9 @@ volatile int64_t requestedInstruction = -1;
 volatile int64_t receivedInstruction = -1;
 
 // ======== Drawing variables as part of movement algorithms ==========//
+
+int64_t HeightMap[HeightMapSize];
+int HeightMapSetIndex = 0;
 
 bool moving = true;
 bool lineStarted = false;
@@ -94,8 +97,14 @@ volatile bool Limit_X_end = false;
 volatile bool Limit_Z_start = false;
 volatile bool Limit_Z_end = false;
 
+/// Various bools to check limits, homing, mapheight, etc
+
 volatile bool isHome = false;
 volatile bool isZero = false;
+volatile bool isMax = false;
+
+volatile bool isZTop = false;
+volatile bool isZBottom = false;
 
 /// ======== prepared Streps ========== ///
 
@@ -187,6 +196,16 @@ TMC262::STATUS status_M3 = {0};
 
 void StartUp()
 {
+    /// Read the HeightMap from EEPROM
+    for (unsigned int i = 0; i < HeightMapSize; i++)
+    {
+        byte64 b64 = {};
+        for (int e = 0; e < 8; e++)
+        {
+            b64.bytes[e] = EEPROM.read(i * 8 + e);
+        }
+        HeightMap[i] = b64.value;
+    }
     activeState = state_none;
     requestedState = state_none;
 
@@ -205,7 +224,7 @@ void StartUp()
 
     /// Configure interrupt timer
     /// 150Mhz PIT timer clock
-    CCM_CSCMR1 &= ~CCM_CSCMR1_PERCLK_CLK_SEL; 
+    CCM_CSCMR1 &= ~CCM_CSCMR1_PERCLK_CLK_SEL;
     IRQTimer.priority(16);
     IRQTimer.begin(MachineLoop, machineSpeed);
 }
@@ -292,7 +311,7 @@ FASTRUN void MachineLoop()
         }
         break;
     }
-    case state_home:
+    case State::state_home:
     {
         if (!isHome)
         {
@@ -325,7 +344,52 @@ FASTRUN void MachineLoop()
         }
         break;
     }
-    case state_none:
+    case State::state_mapheight:
+    {
+        HeightMapSetIndex = -1;
+        /// Get index of the Last HeightMap postition that is not set.
+        for (unsigned int i = 0; i < HeightMapSize; i++)
+        {
+            if (HeightMap[i] == INT64_MIN)
+            {
+                HeightMapSetIndex = i;
+            }
+        }
+
+        if (HeightMapSetIndex == -1)
+        {
+            /// Height Map has been set completely
+            requestedState = State::state_none;
+            activeState = State::state_none;
+        }
+        else
+        {
+            HeightMap[HeightMapSetIndex] = 0;
+        }
+        Serial.println("Loop done!");
+
+        break;
+    }
+
+    case State::state_clearheight:
+    {
+        /// clear Heightmap and EEPROM
+        for (int i = 0; i < HeightMapSize; i++)
+        {
+            byte64 b64 = {};
+            b64.value = INT64_MIN;
+            HeightMap[i] = INT64_MIN;
+            for (int e = 0; e < 8; e++)
+            {
+                EEPROM.write(i * 8 + e, b64.bytes[e]);
+            }
+        }
+        Serial.println("HeightMap cleared.");
+        requestedState = State::state_none;
+        activeState = State::state_none;
+        break;
+    }
+    case State::state_none:
     {
         if (!sleeping)
         {
@@ -335,7 +399,9 @@ FASTRUN void MachineLoop()
                 sleeping = true;
                 setCurrent(sleepCurrent);
             }
-        } else {
+        }
+        else
+        {
             sleepTimer = 0;
         }
 
@@ -364,6 +430,7 @@ FASTRUN void MachineLoop()
         {
             isHome = false;
             isZero = false;
+            isMax = false;
             stepM1 = false;
             stepM2 = false;
             stepM3 = false;
@@ -372,6 +439,29 @@ FASTRUN void MachineLoop()
             homeSpeed = 100.0f;
             activeState = state_home;
         }
+
+        if (requestedState == State::state_mapheight)
+        {
+            stepM1 = false;
+            stepM2 = false;
+            stepM3 = false;
+            stepM4 = false;
+            stepM5 = false;
+            isZBottom = false;
+            isZTop = false;
+            activeState = State::state_mapheight;
+        }
+
+        if (requestedState == State::state_clearheight)
+        {
+            stepM1 = false;
+            stepM2 = false;
+            stepM3 = false;
+            stepM4 = false;
+            stepM5 = false;
+            activeState = State::state_clearheight;
+        }
+
         machineSpeed = 100.0f;
         break;
     }
@@ -523,35 +613,81 @@ FASTRUN void CalculateHomeSteps()
     }
     else
     {
-        if (M1_pos == 13581 && M2_pos == 13581 && M3_pos == 13581 && M4_pos == 13581)
+        if (!isMax)
         {
-            M1_pos = 0;
-            M2_pos = 0;
-            M3_pos = 0;
-            M4_pos = 0;
-            isHome = true;
-        }
-        else
-        {
-            if (M1_pos < 13581)
+            if (Limit_Y1_end && Limit_Y2_end && Limit_X_end)
+            {
+                Serial.print("M1 max:");
+                Serial.println(M1_pos);
+                Serial.print("M2 max:");
+                Serial.println(M2_pos);
+                Serial.print("M3 max:");
+                Serial.println(M3_pos);
+                isMax = true;
+                homeSpeed = 40.0f;
+            }
+            else
             {
                 M1_direction = 1;
                 stepM1 = true;
-            }
-            if (M2_pos < 13581)
-            {
                 M2_direction = 1;
                 stepM2 = true;
-            }
-            if (M3_pos < 13581)
-            {
                 M3_direction = 1;
                 stepM3 = true;
             }
-            if (M4_pos < 13581)
+        }
+        else
+        {
+            if (M1_pos == 13581 && M2_pos == 13581 && M3_pos == 13581 && M4_pos == 13581)
             {
-                M4_direction = 1;
-                stepM4 = true;
+                M1_pos = 0;
+                M2_pos = 0;
+                M3_pos = 0;
+                M4_pos = 0;
+                isHome = true;
+            }
+            else
+            {
+                if (M1_pos > 13581)
+                {
+                    M1_direction = -1;
+                    stepM1 = true;
+                }
+                if (M2_pos > 13581)
+                {
+                    M2_direction = -1;
+                    stepM2 = true;
+                }
+                if (M3_pos > 13581)
+                {
+                    M3_direction = -1;
+                    stepM3 = true;
+                }
+                if (M4_pos > 13581)
+                {
+                    M4_direction = 1;
+                    stepM4 = true;
+                }
+                if (M1_pos < 13581)
+                {
+                    M1_direction = 1;
+                    stepM1 = true;
+                }
+                if (M2_pos < 13581)
+                {
+                    M2_direction = 1;
+                    stepM2 = true;
+                }
+                if (M3_pos < 13581)
+                {
+                    M3_direction = 1;
+                    stepM3 = true;
+                }
+                if (M4_pos < 13581)
+                {
+                    M4_direction = 1;
+                    stepM4 = true;
+                }
             }
         }
     }

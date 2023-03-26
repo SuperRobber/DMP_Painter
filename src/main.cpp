@@ -25,12 +25,12 @@ union byte32
     byte bytes[4];
 };
 
-/// @brief Union to convert int64 to bytearray.
-union byte64
-{
-    int64_t value;
-    byte bytes[8];
-};
+// /// @brief Union to convert int64 to bytearray.
+// union byte64
+// {
+//     int64_t value;
+//     byte bytes[8];
+// };
 
 enum command
 {

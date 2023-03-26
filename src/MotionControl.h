@@ -5,7 +5,24 @@
 #include "TMC_Registers.h"
 #include <Arduino.h>
 
-extern volatile int64_t HeightMap[24];
+#define HeightMapWidth 4
+#define HeightMapHeight 6
+#define HeightMapSize 24
+
+//total min max Y steps 1595169 | margin (13581) 
+#define M1MAX 1568000
+#define M2MAX 1568000
+//total min max X steps 1127620 | margin (13581) 
+#define M3MAX 1100000
+
+extern int64_t HeightMap[HeightMapSize];
+
+/// @brief Union to convert int64 to bytearray.
+union byte64
+{
+    int64_t value;
+    byte bytes[8];
+};
 
 struct DrawInstruction
 {
