@@ -15,7 +15,6 @@ struct DrawInstruction
     int8_t dirY;
     int64_t startX;
     int64_t startY;
-    ;
     int64_t endX;
     int64_t endY;
     int64_t deltaX;
@@ -27,7 +26,7 @@ struct DrawInstruction
     int64_t steps;
 };
 
-//======== State Machine  ==========//
+/// @brief State Machine
 enum State
 {
     state_none = 0,
@@ -42,6 +41,7 @@ enum State
     state_clearheight = 11
 };
 
+/*
 enum Action
 {
     action_none = 0,
@@ -56,41 +56,50 @@ enum Action
     action_draw_move = 9,
     action_draw_draw = 10
 };
+*/
 
-extern volatile enum Action currentAction;
+// extern volatile enum Action currentAction;
 extern volatile enum State activeState;
 extern volatile enum State requestedState;
 
-//======== CIRCULAR Buffer for drawinstructions ==========//
-
-/// @brief Circular buffer for drawing instructions
+/// @brief Draw Instruction circular buffer
 /// @attention use power of 2 size so I can use & in stead of modulo.
 /// e.g. tailIndex = (tailIndex + 1) & 63;
 extern volatile DrawInstruction iBuffer[64];
 
+/// @brief Write index for draw instruction buffer
 extern volatile uint8_t iBufferWriteIndex;
+
+/// @brief Read index for draw instruction buffer
 extern volatile uint8_t iBufferReadIndex;
+
+/// @brief Index for last requested Instruction
 extern volatile int64_t requestedInstruction;
+
+/// @brief Index for last received Instruction
 extern volatile int64_t receivedInstruction;
 
 // extern volatile uint32_t plotter_pos_x;
 // extern volatile uint32_t plotter_pos_y;
 
-extern volatile int32_t M1_pos;
-extern volatile int32_t M2_pos;
-extern volatile int32_t M3_pos;
-extern volatile int32_t M4_pos;
-extern volatile int32_t M5_pos;
+/// ----------------------------------------
+/// Motor and Switch settings and variables
+
+extern volatile int32_t M1_pos; 
+extern volatile int32_t M2_pos; 
+extern volatile int32_t M3_pos; 
+extern volatile int32_t M4_pos; 
+extern volatile int32_t M5_pos; 
 
 extern TMC262::STATUS status_M1;
 extern TMC262::STATUS status_M2;
 extern TMC262::STATUS status_M3;
 
-extern TMC262::DRVCONF driverConfig;
-extern TMC262::CHOPCONF ChopperConfig;
-extern TMC262::SGCSCONF StallGuardConfig;
-extern TMC262::SMARTEN CoolStepConfig;
-extern TMC262::DRVCTRL DriverControl;
+extern TMC262::DRVCONF  driverConfig;
+extern TMC262::CHOPCONF chopperConfig;
+extern TMC262::SGCSCONF stallGuardConfig;
+extern TMC262::SMARTEN  coolStepConfig;
+extern TMC262::DRVCTRL  driverControl;
 
 extern const int M1_csPin;
 extern const int M2_csPin;
@@ -105,16 +114,28 @@ extern volatile bool Limit_X_end;
 extern volatile bool Limit_Z_start;
 extern volatile bool Limit_Z_end;
 
+/// @brief Used to display status.
+/// Indicating current function of the machine. 
 extern volatile uint8_t drawFunction;
+
+/// @brief Used to display status.
+/// Current line being drawn.
 extern volatile int32_t drawIndex;
 
-// extern volatile uint8_t Limit_Y1_start_press_count;
-// extern volatile uint8_t Limit_Y1_end_press_count;
-// extern volatile uint8_t Limit_Y2_start_press_count;
-// extern volatile uint8_t Limit_Y2_end_press_count;
-
+/// @brief The main motion control loop. Called via interrupt timer. To move as
+/// continuous as possible, prepared motor stepping is performed at beginning of each
+/// loop. After that actions for the do next iteration are calculated, which can take
+/// variable amount of time. Following this pattern, movement is controled at a fixed
+/// interval as close to the interrupt call as possible.
+/// @return 
 FASTRUN void MachineLoop();
+
+/// @brief The homing algorithm
 FASTRUN void CalculateHomeSteps();
+
+/// @brief The drawing algorithm.
+// Calculate steps & directions for next iteration.
+FASTRUN void CalculateDrawSteps();
 
 /// @brief Perform Motor Steps that are calculated in previous iteration
 /// and updates position variables.
@@ -127,18 +148,48 @@ FASTRUN void StepMotors();
 /// @return
 FASTRUN void SetDirectionsAndLimits();
 
-FASTRUN void CalculateDrawSteps();
+/// @brief Debouncing of Limit switches.
+/// Fast press and slow release debounce.
+/// Press debounce is shifted in 8 StepLoops
+/// Release debounce is performed every 300000 cycles
 FASTRUN void DebounceSwitches();
+
+/// @brief Prepare a step in X direction
+/// @param dir positive or negative X direction
 FASTRUN void StepX(int8_t dir);
+
+/// @brief Prepare a step in Y direction
+/// @param dir positive or negative Y direction
 FASTRUN void StepY(int8_t dir);
+
+/// @brief Manually set current scale on Stepper Motors
+/// @param cur 0 - 31 current scale
 FASTRUN void setCurrent(int cur);
+
+/// @brief Draw / Step in a straight Line
 FASTRUN void CalculateStraightLine();
+
+/// @brief Draw / Step along a Quadratic Bezier
 FASTRUN void CalculateQuadBezier();
 
+/// @brief Startup procedure, sets up interrupt timer and 
+/// enables stepper motors.
 void StartUp();
+
+/// @brief Configure hardware pins as input for switches
 void configureSwitches();
+
+/// @brief Configure hardware pins as output for stepper motors and configure
+/// all the stepper driver registers.
 void configureStepperDrivers();
+
+/// @brief Function to set TMC263 Stepper Driver register
+/// @param bytes Register data (24bits)
+/// @param CSPIN SPI pin the driver is attached to
+/// @return A status union with various driver flags and driver information
 TMC262::STATUS setTMC262Register(uint8_t bytes[3], int CSPIN);
+
+/// @brief Reads status registers from Stepper drivers
 void updateStepperStatus();
 
 #endif

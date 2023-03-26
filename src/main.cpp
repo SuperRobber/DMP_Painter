@@ -93,7 +93,7 @@ int serialEOFHeaderCount = 0;
 void getSerial(int bytesToRead);
 
 /// ---------------------------------------------------------------------------
-/// setup - configure initialise hardware.
+/// setup - Configure and initialise hardware.
 
 void setup()
 {
@@ -127,7 +127,7 @@ void loop()
     {
         disconnectTimer = 0;
 
-        /// Process pending data.
+        /// Process pending data from Loader program.
         int bytesToRead = Serial.available();
         if (bytesToRead > 0)
         {
@@ -165,7 +165,7 @@ void loop()
             }
         }
 
-        /// Update states 20 frames per second.
+        /// Update status 20 frames per second.
         if (statusTimer > 50)
         {
             statusTimer = 0;

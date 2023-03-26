@@ -2,7 +2,7 @@
 
 #include <SPI.h>
 
-volatile enum Action currentAction = action_none;
+// volatile enum Action currentAction = action_none;
 
 volatile enum State activeState = state_none;
 volatile enum State requestedState = state_none;
@@ -15,9 +15,11 @@ volatile uint8_t iBufferReadIndex = 0;
 volatile int64_t requestedInstruction = -1;
 volatile int64_t receivedInstruction = -1;
 
-// drawing vars
+// ======== Drawing variables as part of movement algorithms ==========//
+
 bool moving = true;
 bool lineStarted = false;
+
 int64_t drawDeltaX = 0;
 int64_t drawDeltaY = 0;
 int64_t drawError = 0;
@@ -42,7 +44,11 @@ int sleepCurrent = 0;
 
 bool sleeping = false;
 
-//======== Limit Switch Pins ==========//
+/// @brief Limit switch debounce cycle counter
+uint32_t debounceCounter = 0;
+
+/// ======== Limit switch hardware pins ========== ///
+
 const int panic_pin = 23;
 const int Limit_Y1_start_pin = 36;
 const int Limit_Y1_end_pin = 35;
@@ -53,7 +59,8 @@ const int Limit_X_end_pin = 39;
 const int Limit_Z_start_pin = 41;
 const int Limit_Z_end_pin = 14;
 
-//======== Limit Switch Debounce (ON) count ==========//
+/// ======== Limit Switch Debounce Press (ON) counters ========== ///
+
 uint8_t panic_on_count = 0;
 uint8_t Limit_Y1_start_on_count = 0;
 uint8_t Limit_Y1_end_on_count = 0;
@@ -64,7 +71,8 @@ uint8_t Limit_X_end_on_count = 0;
 uint8_t Limit_Z_start_on_count = 0;
 uint8_t Limit_Z_end_on_count = 0;
 
-//======== Limit Switch Debounce (OFF) count ==========//
+/// ======== Limit Switch Debounce Release (OFF) counters ========== ///
+
 uint8_t panic_off_count = __UINT8_MAX__;
 uint8_t Limit_Y1_start_off_count = __UINT8_MAX__;
 uint8_t Limit_Y1_end_off_count = __UINT8_MAX__;
@@ -75,7 +83,7 @@ uint8_t Limit_X_end_off_count = __UINT8_MAX__;
 uint8_t Limit_Z_start_off_count = __UINT8_MAX__;
 uint8_t Limit_Z_end_off_count = __UINT8_MAX__;
 
-//======== Limit Switch values ==========//
+/// ======== Limit Switch values ========== ///
 volatile bool panic_switch = false;
 volatile bool Limit_Y1_start = false;
 volatile bool Limit_Y1_end = false;
@@ -89,13 +97,16 @@ volatile bool Limit_Z_end = false;
 volatile bool isHome = false;
 volatile bool isZero = false;
 
+/// ======== prepared Streps ========== ///
+
 bool stepM1 = false;
 bool stepM2 = false;
 bool stepM3 = false;
 bool stepM4 = false;
 bool stepM5 = false;
 
-//======== Stepper Motors ==========//
+/// ========  Stepper Motor hardware pins ========== ///
+
 SPISettings tmc262_spi_config(5000000, MSBFIRST, SPI_MODE3);
 SPISettings tmc2130_spi_config(4000000, MSBFIRST, SPI_MODE3);
 int spi_cs_delay = 50;
@@ -126,15 +137,23 @@ const int M5_stepPin = 20;
 const int M5_dirPin = 21;
 const int M5_csPin = 19;
 
-//======== Motion Control ==========//
-RoboTimer IRQTimer; // PIR TIMER triggering StepLoop Interrupt
+/// ======== Motion Control ========== ///
 
+// Hardware interrupt (PIR) TIMER triggering MachineLoop Interrupt.
+RoboTimer IRQTimer;
+
+/// @brief intterrupt iteration time (speed) when drawing.
 float drawSpeed = 15.0f;
+
+/// @brief intterrupt iteration time (speed) when homing.
 float homeSpeed = 100.0f;
+
+/// @brief intterrupt iteration time (speed).
 float machineSpeed = 100.0f;
 
-uint32_t debounceCounter = 0;
-volatile uint32_t max_step_cycles = 0; // keep track of highest StepperLoop time
+/// Track interrupt performance.
+/// Measur highest MachineLoop interrupt time.
+volatile uint32_t max_step_cycles = 0;
 
 volatile int32_t M1_pos = 0;
 volatile int32_t M2_pos = 0;
@@ -148,6 +167,14 @@ volatile int8_t M3_direction = 0;
 volatile int8_t M4_direction = 0;
 volatile int8_t M5_direction = 0;
 
+TMC262::DRVCONF driverConfig = {0};
+TMC262::CHOPCONF chopperConfig = {0};
+TMC262::SGCSCONF stallGuardConfig = {0};
+TMC262::SMARTEN coolStepConfig = {0};
+TMC262::DRVCTRL driverControl = {0};
+
+/// ======== Motor status ========== ///
+
 volatile uint8_t drawFunction = 0;
 volatile int32_t drawIndex = 0;
 
@@ -155,96 +182,97 @@ TMC262::STATUS status_M1 = {0};
 TMC262::STATUS status_M2 = {0};
 TMC262::STATUS status_M3 = {0};
 
-TMC262::DRVCONF driverConfig = {0};
-TMC262::CHOPCONF ChopperConfig = {0};
-TMC262::SGCSCONF StallGuardConfig = {0};
-TMC262::SMARTEN CoolStepConfig = {0};
-TMC262::DRVCTRL DriverControl = {0};
-
 void StartUp()
 {
-    //======== ENABLE DRIVERS ==========//
     activeState = state_none;
     requestedState = state_none;
+
     setCurrent(sleepCurrent);
+
+    /// Enable stepper drivers
     digitalWriteFast(M1_M2_M3_ennPin, 0);
     digitalWriteFast(M4_M5_enPin, 0);
 
     setCurrent(workCurrent);
-    delay(1000);
-    //======== Configure Interrupt Timer ===//
-    CCM_CSCMR1 &= ~CCM_CSCMR1_PERCLK_CLK_SEL; // 150Mhz PIT clock
+
+    delay(500);
+
     requestedState = state_home;
     lineStarted = false;
+
+    /// ======== Configure Interrupt Timer === ///
+    CCM_CSCMR1 &= ~CCM_CSCMR1_PERCLK_CLK_SEL; // 150Mhz PIT clock
     IRQTimer.priority(16);
     IRQTimer.begin(MachineLoop, machineSpeed);
 }
 
 FASTRUN void MachineLoop()
 {
-    // to make steps as continuous as possible we perform stepping at beginning of this each Loop
-    // and after take calculate what to do next round (can take variable amount of time)
-    // to make steps as continuous as possible we perform stepping at beginning of this Loop
-    // and after take calculate what to do next round (can take variable amount of time)
-
+    /// track interrupt time performance
     uint32_t starttime = ARM_DWT_CYCCNT;
 
     switch (activeState)
     {
-    case state_draw: {
-        // Perform Motor Steps (calculated in previous Iteration) AND update positions ==========//
+    case State::state_draw:
+    {
+        /// Perform Motor Steps.
+        /// As calculated in previous iteration and update positions.
         StepMotors();
 
-        // reset steps for next iteration
+        /// Reset step trigger and start next iteration.
         stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
 
-        // steps made, positions updated check for end of line
+        /// Check for end of line.
         if (lineStarted)
         {
             if (posX == iBuffer[iBufferReadIndex].endX && posY == iBuffer[iBufferReadIndex].endY)
             {
-                // we are Done drawing current line!
+                /// Done drawing current line!
                 iBufferReadIndex = (iBufferReadIndex + 1) & 63;
                 drawFunction = 0;
                 lineStarted = false;
-                // currentAction=action_none;
 
-                // do we need to pause now ?
+                /// Is there a request to Pause drawing?
                 if (requestedState == state_none)
                 {
                     activeState = state_none;
+                    // Do not execute the rest of this case.
                     break;
                 }
             }
         }
 
-        // check if buffer has data or is empty
+        /// Are there active or new instructions that need to be drawn ?
         if (iBufferReadIndex != iBufferWriteIndex)
         {
-            // do we need to start a new line ?
-
             if (sleeping)
             {
+                /// Wake up
                 setCurrent(workCurrent);
                 sleeping = false;
             }
-            else
-            {
-                CalculateDrawSteps();     // Calculate future steps & directions for next iterations ==========//
-                SetDirectionsAndLimits(); // Set PRE-STEP Direction &&& Check LIMITS
-                machineSpeed = drawSpeed;
-            }
+
+            /// Calculate movement for the next step.
+            CalculateDrawSteps();
+            SetDirectionsAndLimits();
+
+            machineSpeed = drawSpeed;
             sleepTimer = 0;
         }
         else
         {
+            /// Nothing left to do right now.
+
             if (requestedState == state_eof)
             {
+                /// End of File reached. Done drawing all instructions.
                 requestedState = state_none;
                 activeState = state_none;
             }
             else
             {
+                /// Wait for an EOF or new instructions to arrive
+                /// in the draw instruction buffer.
                 if (!sleeping)
                 {
                     sleepTimer++;
@@ -260,12 +288,17 @@ FASTRUN void MachineLoop()
         }
         break;
     }
-    case state_home: {
+    case state_home:
+    {
         if (!isHome)
         {
-            StepMotors(); // Perform Motor Steps (calculated in previous Iteration) AND update positions ==========//
+            /// Perform Motor Steps.
+            /// As calculated in previous iteration and update positions.
+            StepMotors();
 
+            /// Reset step trigger and start next iteration.
             stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
+
             CalculateHomeSteps();
             SetDirectionsAndLimits(); // Set PRE-STEP Direction &&& Check LIMITS
         }
@@ -282,7 +315,8 @@ FASTRUN void MachineLoop()
         machineSpeed = homeSpeed;
         break;
     }
-    case state_none: {
+    case state_none:
+    {
         if (requestedState == state_none)
         {
             if (!sleeping)
@@ -348,16 +382,18 @@ FASTRUN void MachineLoop()
         machineSpeed = 100.0f;
         break;
     }
-    default: {
+    default:
+    {
         break;
     }
     }
-    // Debounce Switches
+    
+    /// Debounce Switches and set button press or release triggers
     DebounceSwitches();
 
-    //======== set STEP SPEED for next Iteration ==========//
-    // for diagonal steps the loop should take SQRT(2) times longer to
-    // maintain constant speed
+    /// Set STEP SPEED (Intertupt time) for next Iteration. 
+    /// In case of a diagonal steps the loop should take SQRT(2) times 
+    /// longer to maintain constant speed.
 
     uint32_t cycles;
     if (stepM1 && stepM2 && stepM3)
@@ -370,12 +406,13 @@ FASTRUN void MachineLoop()
         cycles = (uint32_t)(150.0f * machineSpeed - 0.5f);
     }
 
-    debounceCounter += cycles;
     IRQTimer.unsafe_update(cycles);
 
-    // END keep track of time for this IRQ
+    /// Update the debounce timetracker
+    debounceCounter += cycles;
+
+    /// Update variables for time tracking interrupt performance.
     uint32_t endtime = ARM_DWT_CYCCNT;
-    // if (endtime - starttime > max_step_cycles && endtime > starttime) {
     if (endtime - starttime > max_step_cycles)
     {
         max_step_cycles = endtime - starttime;
@@ -464,7 +501,6 @@ FASTRUN void SetDirectionsAndLimits()
             stepM4 = false;
     }
 
-    // digitalWriteFast(M4_dirPin, M4_direction);
     // digitalWriteFast(M5_dirPin, M5_direction);
 }
 
@@ -687,10 +723,10 @@ FASTRUN void StepY(int8_t dir)
 
 FASTRUN void setCurrent(int cur)
 {
-    StallGuardConfig.current_scale = min(31, max(0, cur));
-    setTMC262Register(StallGuardConfig.bytes, M1_csPin);
-    setTMC262Register(StallGuardConfig.bytes, M2_csPin);
-    setTMC262Register(StallGuardConfig.bytes, M3_csPin);
+    stallGuardConfig.current_scale = min(31, max(0, cur));
+    setTMC262Register(stallGuardConfig.bytes, M1_csPin);
+    setTMC262Register(stallGuardConfig.bytes, M2_csPin);
+    setTMC262Register(stallGuardConfig.bytes, M3_csPin);
 }
 
 FASTRUN void CalculateStraightLine()
@@ -837,7 +873,7 @@ FASTRUN void DebounceSwitches()
     {
         panic_off_count = __UINT8_MAX__;
         panic_switch = true;
-        // PANIC Button! STOPPING ALL MOTORS
+        // PANIC Button! STOPPING ALL MOTORS Right now
         digitalWriteFast(M1_M2_M3_ennPin, 1);
         digitalWriteFast(M4_M5_enPin, 1);
     }
@@ -927,9 +963,9 @@ FASTRUN void DebounceSwitches()
 
 void updateStepperStatus()
 {
-    status_M1 = setTMC262Register(DriverControl.bytes, M1_csPin);
-    status_M2 = setTMC262Register(DriverControl.bytes, M2_csPin);
-    status_M3 = setTMC262Register(DriverControl.bytes, M3_csPin);
+    status_M1 = setTMC262Register(driverControl.bytes, M1_csPin);
+    status_M2 = setTMC262Register(driverControl.bytes, M2_csPin);
+    status_M3 = setTMC262Register(driverControl.bytes, M3_csPin);
 
     // if ((bool)status_M1.Stalled)
     //     Serial.println("M1 Stallguard status: Stalled");
@@ -1082,56 +1118,56 @@ void configureStepperDrivers()
     setTMC262Register(driverConfig.bytes, M2_csPin);
     setTMC262Register(driverConfig.bytes, M3_csPin);
 
-    // ChopperConfig.address = 4;
-    // ChopperConfig.blanking_time = 2;
-    // ChopperConfig.chopper_mode = 0;
-    // ChopperConfig.random_t_off = 0;
-    // ChopperConfig.hysteresis_decrement_interval = 0;
-    // ChopperConfig.hysteresis_end_value = 3;
-    // ChopperConfig.hysteresis_start_value = 3;
-    // ChopperConfig.Toff = 4;
+    // chopperConfig.address = 4;
+    // chopperConfig.blanking_time = 2;
+    // chopperConfig.chopper_mode = 0;
+    // chopperConfig.random_t_off = 0;
+    // chopperConfig.hysteresis_decrement_interval = 0;
+    // chopperConfig.hysteresis_end_value = 3;
+    // chopperConfig.hysteresis_start_value = 3;
+    // chopperConfig.Toff = 4;
 
-    ChopperConfig.address = 4;
-    ChopperConfig.blanking_time = 1;
-    ChopperConfig.chopper_mode = 0;
-    ChopperConfig.random_t_off = 0;
-    ChopperConfig.hysteresis_decrement_interval = 0;
-    ChopperConfig.hysteresis_end_value = 3;
-    ChopperConfig.hysteresis_start_value = 3;
-    ChopperConfig.Toff = 4;
+    chopperConfig.address = 4;
+    chopperConfig.blanking_time = 1;
+    chopperConfig.chopper_mode = 0;
+    chopperConfig.random_t_off = 0;
+    chopperConfig.hysteresis_decrement_interval = 0;
+    chopperConfig.hysteresis_end_value = 3;
+    chopperConfig.hysteresis_start_value = 3;
+    chopperConfig.Toff = 4;
 
-    setTMC262Register(ChopperConfig.bytes, M1_csPin);
-    setTMC262Register(ChopperConfig.bytes, M2_csPin);
-    setTMC262Register(ChopperConfig.bytes, M3_csPin);
+    setTMC262Register(chopperConfig.bytes, M1_csPin);
+    setTMC262Register(chopperConfig.bytes, M2_csPin);
+    setTMC262Register(chopperConfig.bytes, M3_csPin);
 
-    StallGuardConfig.address = 6;
-    StallGuardConfig.filter = 0;
-    StallGuardConfig.stall_threshold = 4; // 2s complement 0..63 = 0..63 / 64..127 = -63..-0
-    StallGuardConfig.current_scale = 0;
+    stallGuardConfig.address = 6;
+    stallGuardConfig.filter = 0;
+    stallGuardConfig.stall_threshold = 4; // 2s complement 0..63 = 0..63 / 64..127 = -63..-0
+    stallGuardConfig.current_scale = 0;
 
-    setTMC262Register(StallGuardConfig.bytes, M1_csPin);
-    setTMC262Register(StallGuardConfig.bytes, M2_csPin);
-    setTMC262Register(StallGuardConfig.bytes, M3_csPin);
+    setTMC262Register(stallGuardConfig.bytes, M1_csPin);
+    setTMC262Register(stallGuardConfig.bytes, M2_csPin);
+    setTMC262Register(stallGuardConfig.bytes, M3_csPin);
 
-    CoolStepConfig.address = 5;
-    CoolStepConfig.min_current = 0;
-    CoolStepConfig.current_decrement_speed = 0;
-    CoolStepConfig.upper_coolstep_treshold = 0;
-    CoolStepConfig.current_increment_size = 0;
-    CoolStepConfig.lower_coolstep_treshold = 0; // disable coolstep;
+    coolStepConfig.address = 5;
+    coolStepConfig.min_current = 0;
+    coolStepConfig.current_decrement_speed = 0;
+    coolStepConfig.upper_coolstep_treshold = 0;
+    coolStepConfig.current_increment_size = 0;
+    coolStepConfig.lower_coolstep_treshold = 0; // disable coolstep;
 
-    setTMC262Register(CoolStepConfig.bytes, M1_csPin);
-    setTMC262Register(CoolStepConfig.bytes, M2_csPin);
-    setTMC262Register(CoolStepConfig.bytes, M3_csPin);
+    setTMC262Register(coolStepConfig.bytes, M1_csPin);
+    setTMC262Register(coolStepConfig.bytes, M2_csPin);
+    setTMC262Register(coolStepConfig.bytes, M3_csPin);
 
-    DriverControl.address = 0;
-    DriverControl.interpolation = 0;
-    DriverControl.double_edge_step = 1;
-    DriverControl.microstep_resolition = 0;
+    driverControl.address = 0;
+    driverControl.interpolation = 0;
+    driverControl.double_edge_step = 1;
+    driverControl.microstep_resolition = 0;
 
-    setTMC262Register(DriverControl.bytes, M1_csPin);
-    setTMC262Register(DriverControl.bytes, M2_csPin);
-    setTMC262Register(DriverControl.bytes, M3_csPin);
+    setTMC262Register(driverControl.bytes, M1_csPin);
+    setTMC262Register(driverControl.bytes, M2_csPin);
+    setTMC262Register(driverControl.bytes, M3_csPin);
 
     // M4,M5 TMC2130 Fystec
 
@@ -1143,17 +1179,17 @@ void configureStepperDrivers()
     // setTMC2130Register(TMC2130::registers::reg_GCONF, globalConfig.data, M5_csPin);
 
     // Write CHOPCONF
-    TMC2130::CHOPCONF ChopperConfig = {0};
-    ChopperConfig.mode = 0;
-    ChopperConfig.mres = 0;   // 256 microsteps
-    ChopperConfig.dedge = 1;  // double edge step
-    ChopperConfig.vsense = 0; // 0 = fullpower
-    ChopperConfig.blanktime = 2;
-    ChopperConfig.hend = 1;
-    ChopperConfig.hstart = 4;
-    ChopperConfig.toff = 3;
-    setTMC2130Register(TMC2130::registers::reg_CHOPCONF, ChopperConfig.data, M4_csPin);
-    // setTMC2130Register(TMC2130::registers::reg_CHOPCONF, ChopperConfig.data, M5_csPin);
+    TMC2130::CHOPCONF chopperConfig = {0};
+    chopperConfig.mode = 0;
+    chopperConfig.mres = 0;   // 256 microsteps
+    chopperConfig.dedge = 1;  // double edge step
+    chopperConfig.vsense = 0; // 0 = fullpower
+    chopperConfig.blanktime = 2;
+    chopperConfig.hend = 1;
+    chopperConfig.hstart = 4;
+    chopperConfig.toff = 3;
+    setTMC2130Register(TMC2130::registers::reg_CHOPCONF, chopperConfig.data, M4_csPin);
+    // setTMC2130Register(TMC2130::registers::reg_CHOPCONF, chopperConfig.data, M5_csPin);
 
     // Write IHOLD_IRUN
     TMC2130::IHOLD_IRUN CurrentControl = {0};
