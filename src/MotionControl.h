@@ -9,11 +9,10 @@
 #define HeightMapHeight 6
 #define HeightMapSize 24
 
-//total min max Y steps 1595169 | margin (13581) 
-#define M1MAX 1568000
-#define M2MAX 1568000
-//total min max X steps 1127620 | margin (13581) 
-#define M3MAX 1100000
+// total min max Y steps 1595169 | margin (13581)
+#define YMAX 1568000
+// total min max X steps 1127620 | margin (13581)
+#define XMAX 1100000
 
 extern int64_t HeightMap[HeightMapSize];
 
@@ -56,6 +55,23 @@ enum State
     state_reset = 7,
     state_mapheight = 10,
     state_clearheight = 11
+};
+
+/// @brief Statew Machine for Mapping one point.
+enum MappingState
+{
+    None = 0,
+    Up = 1,
+    XYStart = 2,
+    XYMove = 3,
+    Down = 4,
+    Done = 5
+};
+
+enum AnotherState
+{
+    None = 1,
+    Up=0
 };
 
 /*
@@ -102,21 +118,21 @@ extern volatile int64_t receivedInstruction;
 /// ----------------------------------------
 /// Motor and Switch settings and variables
 
-extern volatile int32_t M1_pos; 
-extern volatile int32_t M2_pos; 
-extern volatile int32_t M3_pos; 
-extern volatile int32_t M4_pos; 
-extern volatile int32_t M5_pos; 
+extern volatile int32_t M1_pos;
+extern volatile int32_t M2_pos;
+extern volatile int32_t M3_pos;
+extern volatile int32_t M4_pos;
+extern volatile int32_t M5_pos;
 
 extern TMC262::STATUS status_M1;
 extern TMC262::STATUS status_M2;
 extern TMC262::STATUS status_M3;
 
-extern TMC262::DRVCONF  driverConfig;
+extern TMC262::DRVCONF driverConfig;
 extern TMC262::CHOPCONF chopperConfig;
 extern TMC262::SGCSCONF stallGuardConfig;
-extern TMC262::SMARTEN  coolStepConfig;
-extern TMC262::DRVCTRL  driverControl;
+extern TMC262::SMARTEN coolStepConfig;
+extern TMC262::DRVCTRL driverControl;
 
 extern const int M1_csPin;
 extern const int M2_csPin;
@@ -132,7 +148,7 @@ extern volatile bool Limit_Z_start;
 extern volatile bool Limit_Z_end;
 
 /// @brief Used to display status.
-/// Indicating current function of the machine. 
+/// Indicating current function of the machine.
 extern volatile uint8_t drawFunction;
 
 /// @brief Used to display status.
@@ -144,7 +160,7 @@ extern volatile int32_t drawIndex;
 /// loop. After that actions for the do next iteration are calculated, which can take
 /// variable amount of time. Following this pattern, movement is controled at a fixed
 /// interval as close to the interrupt call as possible.
-/// @return 
+/// @return
 FASTRUN void MachineLoop();
 
 /// @brief The homing algorithm
@@ -179,6 +195,11 @@ FASTRUN void StepX(int8_t dir);
 /// @param dir positive or negative Y direction
 FASTRUN void StepY(int8_t dir);
 
+
+/// @brief Prepare a step in Z direction
+/// @param dir positive or negative Z direction
+FASTRUN void StepZ(int8_t dir);
+
 /// @brief Manually set current scale on Stepper Motors
 /// @param cur 0 - 31 current scale
 FASTRUN void setCurrent(int cur);
@@ -189,7 +210,7 @@ FASTRUN void CalculateStraightLine();
 /// @brief Draw / Step along a Quadratic Bezier
 FASTRUN void CalculateQuadBezier();
 
-/// @brief Startup procedure, sets up interrupt timer and 
+/// @brief Startup procedure, sets up interrupt timer and
 /// enables stepper motors.
 void StartUp();
 

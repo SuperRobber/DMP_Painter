@@ -4,8 +4,8 @@
 
 // volatile enum Action currentAction = action_none;
 
-volatile enum State activeState = state_none;
-volatile enum State requestedState = state_none;
+volatile State activeState = state_none;
+volatile State requestedState = state_none;
 
 // ======== CIRCULAR Buffer for draw instructions ==========//
 
@@ -14,6 +14,10 @@ volatile uint8_t iBufferWriteIndex = 0;
 volatile uint8_t iBufferReadIndex = 0;
 volatile int64_t requestedInstruction = -1;
 volatile int64_t receivedInstruction = -1;
+
+// ======== Mapping Algorithm
+
+MappingState mappingState = MappingState::None;
 
 // ======== Drawing variables as part of movement algorithms ==========//
 
@@ -39,6 +43,7 @@ double moveStep = 0;
 
 int64_t posX = 0;
 int64_t posY = 0;
+int64_t posZ = 0;
 
 uint64_t sleepTimer = 0;
 
@@ -346,28 +351,7 @@ FASTRUN void MachineLoop()
     }
     case State::state_mapheight:
     {
-        HeightMapSetIndex = -1;
-        /// Get index of the Last HeightMap postition that is not set.
-        for (unsigned int i = 0; i < HeightMapSize; i++)
-        {
-            if (HeightMap[i] == INT64_MIN)
-            {
-                HeightMapSetIndex = i;
-            }
-        }
-
-        if (HeightMapSetIndex == -1)
-        {
-            /// Height Map has been set completely
-            requestedState = State::state_none;
-            activeState = State::state_none;
-        }
-        else
-        {
-            HeightMap[HeightMapSetIndex] = 0;
-        }
-        Serial.println("Loop done!");
-
+        MapHeight();
         break;
     }
 
@@ -528,6 +512,9 @@ FASTRUN void StepMotors()
     //     digitalToggleFast(M5_stepPin);
     //     M5_pos += M5_direction;
     // }
+
+    /// Always reset step triggers
+    stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
 }
 
 FASTRUN void SetDirectionsAndLimits()
@@ -653,36 +640,40 @@ FASTRUN void CalculateHomeSteps()
                     M1_direction = -1;
                     stepM1 = true;
                 }
-                if (M2_pos > 13581)
-                {
-                    M2_direction = -1;
-                    stepM2 = true;
-                }
-                if (M3_pos > 13581)
-                {
-                    M3_direction = -1;
-                    stepM3 = true;
-                }
-                if (M4_pos > 13581)
-                {
-                    M4_direction = 1;
-                    stepM4 = true;
-                }
                 if (M1_pos < 13581)
                 {
                     M1_direction = 1;
                     stepM1 = true;
+                }
+
+                if (M2_pos > 13581)
+                {
+                    M2_direction = -1;
+                    stepM2 = true;
                 }
                 if (M2_pos < 13581)
                 {
                     M2_direction = 1;
                     stepM2 = true;
                 }
+
+                if (M3_pos > 13581)
+                {
+                    M3_direction = -1;
+                    stepM3 = true;
+                }
                 if (M3_pos < 13581)
                 {
                     M3_direction = 1;
                     stepM3 = true;
                 }
+
+                if (M4_pos > 13581)
+                {
+                    M4_direction = -1;
+                    stepM4 = true;
+                }
+
                 if (M4_pos < 13581)
                 {
                     M4_direction = 1;
@@ -690,6 +681,192 @@ FASTRUN void CalculateHomeSteps()
                 }
             }
         }
+    }
+}
+
+FASTRUN void MapHeight()
+{
+    /// Update current positions from motors
+    posY = M1_pos;
+    posX = M3_pos;
+    posZ = M4_pos;
+
+    switch (mappingState)
+    {
+    /// ================================================
+    case (MappingState::None):
+    {
+        HeightMapSetIndex = -1;
+        /// Get index of the Last HeightMap postition that is not set.
+        for (unsigned int i = 0; i < HeightMapSize; i++)
+        {
+            if (HeightMap[i] == INT64_MIN)
+            {
+                HeightMapSetIndex = i;
+            }
+        }
+
+        if (HeightMapSetIndex == -1)
+        {
+            /// HeightMap is set completely.
+            if (posZ != 0)
+            {
+                /// Move up first, then return here
+                mappingState = MappingState::Up;
+            }
+            else
+            {
+                /// Heightmap complete and safely moved up.
+                mappingState = MappingState::Done;
+            }
+        }
+        else
+        {
+            /// HeightMapIndex needs mapping.
+            if (posZ != 0)
+            {
+                /// Move up first, then return here.
+                mappingState = MappingState::Up;
+            }
+            else
+            {
+                /// Ready to move to the correct position
+
+                moveEndX = (XMAX / 4) * (HeightMapSetIndex % 4);
+                moveEndY = (YMAX / 6) * (HeightMapSetIndex / 4);
+
+                if (posX == moveEndX && posY == moveEndY)
+                {
+                    /// Mapping position already reached, proceed to map height.
+                    mappingState = MappingState::Down;
+                }
+                else
+                {
+                    mappingState = MappingState::XYStart;
+                }
+            }
+        }
+        break;
+    }
+    /// ================================================
+    case (MappingState::Up):
+    {
+        StepMotors();
+        /// Always reset step triggers and then start next iteration.
+        stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
+
+        if (posZ == 0)
+        {
+            /// Switch back to state: None
+            mappingState = MappingState::None;
+            machineSpeed = normalSpeed;
+        }
+        else
+        {
+            if (posZ > 0)
+                StepZ(-1);
+
+            if (posZ < 0)
+                StepZ(1);
+
+            machineSpeed = normalSpeed;
+        }
+
+        SetDirectionsAndLimits();
+        break;
+    }
+
+    /// ================================================
+    case (MappingState::XYStart):
+    {
+        /// start new movement
+        moveDeltaX = abs(moveEndX - posX);
+        moveDeltaY = -abs(moveEndY - posY);
+        moveDirX = (posX < moveEndX ? 1 : -1);
+        moveDirY = (posY < moveEndY ? 1 : -1);
+        moveError = moveDeltaX + moveDeltaY;
+        if (moveDeltaX > -moveDeltaY)
+        {
+            moveSteps = (double)moveDeltaX * 0.5;
+        }
+        else
+        {
+            moveSteps = (double)moveDeltaY * -0.5;
+        }
+        moveStep = 0;
+        mappingState = MappingState::XYMove;
+        break;
+    }
+
+    /// ================================================
+    case (MappingState::XYMove):
+    {
+        StepMotors();
+        /// Always reset step triggers and then start next iteration.
+        stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
+
+        if (posX == moveEndX && posY == moveEndY)
+        {
+            mappingState = MappingState::None;
+            machineSpeed = normalSpeed;
+        }
+        else
+        {
+            if (posX != moveEndX && posY != moveEndY)
+            {
+                if (2 * moveError <= moveDeltaX)
+                {
+                    moveError += moveDeltaX;
+                    StepY(moveDirY);
+                }
+                if (2 * moveError >= moveDeltaY)
+                {
+                    moveError += moveDeltaY;
+                    StepX(moveDirX);
+                }
+            }
+            else
+            {
+                // At least x or y has reached its final position, if anything
+                // remains, it must be a straight line.
+                if (posX != moveEndX)
+                {
+                    StepX(moveDirX);
+                }
+
+                if (posY != moveEndY)
+                {
+                    StepY(moveDirY);
+                }
+            }
+            // double speedRamp = min(-fabs(moveSteps - moveStep) + moveSteps, 12000.0) / 400.0;
+            // machineSpeed = max(7.0 + 30.0 - speedRamp, 7.0);
+            machineSpeed = normalSpeed;
+            moveStep++;
+        }
+        SetDirectionsAndLimits();
+        break;
+    }
+    /// ================================================
+    case (MappingState::Down):
+    {
+        /// Skip for now
+        /// Set height in the heightmap.
+        HeightMap[HeightMapSetIndex] = 0;
+
+        /// Check if we need to map another position in the map.
+        /// Switch to state: None
+        mappingState = MappingState::None;
+        break;
+    }
+
+    /// ================================================
+    case (MappingState::Done):
+    {
+        requestedState = State::state_none;
+        activeState = State::state_none;
+        break;
+    }
     }
 }
 
@@ -784,7 +961,6 @@ FASTRUN void CalculateDrawSteps()
                     if (posX == moveEndX && posY == moveEndY)
                     {
                         // we have arrived at the start of the line?;
-                        drawFunction = 3;
                         if (iBuffer[iBufferReadIndex].type == 1)
                         {
                             // Straight Line
@@ -797,6 +973,7 @@ FASTRUN void CalculateDrawSteps()
                             drawDeltaY = iBuffer[iBufferReadIndex].deltaY;
                         }
                         drawSpeed = 15.0f;
+                        drawFunction = 3;
                         moving = false;
 
                         // do we pause here ?
@@ -848,6 +1025,19 @@ FASTRUN void StepY(int8_t dir)
     }
     stepM1 = true;
     stepM2 = true;
+}
+
+FASTRUN void StepZ(int8_t dir)
+{
+    if (dir > 0)
+    {
+        M4_direction = 1;
+    }
+    else
+    {
+        M4_direction = -1;
+    }
+    stepM4 = true;
 }
 
 FASTRUN void setCurrent(int cur)
