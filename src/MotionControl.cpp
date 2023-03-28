@@ -2,12 +2,13 @@
 #include <EEPROM.h>
 #include <SPI.h>
 
-// volatile enum Action currentAction = action_none;
+// ===================== Machines task switching =====================
 
 volatile State activeState = state_none;
 volatile State requestedState = state_none;
 
-// ======== CIRCULAR Buffer for draw instructions ==========//
+
+// ===================== Circular buffer for draw instructions. =====================
 
 volatile DrawInstruction iBuffer[64];
 volatile uint8_t iBufferWriteIndex = 0;
@@ -15,14 +16,15 @@ volatile uint8_t iBufferReadIndex = 0;
 volatile int64_t requestedInstruction = -1;
 volatile int64_t receivedInstruction = -1;
 
-// ======== Mapping Algorithm
+// ===================== Height Mapping algorithm. =====================
 
-MappingState mappingState = MappingState::MS_None;
-
-// ======== Drawing variables as part of movement algorithms ==========//
-
+volatile MapHeightState mapHeightState = MapHeightState::None;
 int64_t HeightMap[HeightMapSize];
 int HeightMapSetIndex = 0;
+
+
+/// ===================== Drawing variables as part of movement algorithms. =====================
+
 
 bool moving = true;
 bool lineStarted = false;
@@ -52,10 +54,13 @@ int sleepCurrent = 0;
 
 bool sleeping = false;
 
-/// @brief Limit switch debounce cycle counter
+
+/// ===================== Limit switches =====================
+
+/// Debounce cycle counter
 uint32_t debounceCounter = 0;
 
-/// ======== Limit switch hardware pins ========== ///
+/// hardware pins
 
 const int panic_pin = 23;
 const int Limit_Y1_start_pin = 36;
@@ -67,7 +72,7 @@ const int Limit_X_end_pin = 39;
 const int Limit_Z_start_pin = 41;
 const int Limit_Z_end_pin = 14;
 
-/// ======== Limit Switch Debounce Press (ON) counters ========== ///
+/// Debounce press (ON) counters 
 
 uint8_t panic_on_count = 0;
 uint8_t Limit_Y1_start_on_count = 0;
@@ -79,7 +84,7 @@ uint8_t Limit_X_end_on_count = 0;
 uint8_t Limit_Z_start_on_count = 0;
 uint8_t Limit_Z_end_on_count = 0;
 
-/// ======== Limit Switch Debounce Release (OFF) counters ========== ///
+/// Debounce release (OFF) counters 
 
 uint8_t panic_off_count = __UINT8_MAX__;
 uint8_t Limit_Y1_start_off_count = __UINT8_MAX__;
@@ -91,7 +96,7 @@ uint8_t Limit_X_end_off_count = __UINT8_MAX__;
 uint8_t Limit_Z_start_off_count = __UINT8_MAX__;
 uint8_t Limit_Z_end_off_count = __UINT8_MAX__;
 
-/// ======== Limit Switch values ========== ///
+/// Switch states
 volatile bool panic_switch = false;
 volatile bool Limit_Y1_start = false;
 volatile bool Limit_Y1_end = false;
@@ -102,24 +107,16 @@ volatile bool Limit_X_end = false;
 volatile bool Limit_Z_start = false;
 volatile bool Limit_Z_end = false;
 
+/// =====================  =====================
+
 /// Various bools to check limits, homing, mapheight, etc
 
 volatile bool isHome = false;
 volatile bool isZero = false;
 volatile bool isMax = false;
 
-volatile bool isZTop = false;
-volatile bool isZBottom = false;
 
-/// ======== prepared Streps ========== ///
-
-bool stepM1 = false;
-bool stepM2 = false;
-bool stepM3 = false;
-bool stepM4 = false;
-bool stepM5 = false;
-
-/// ========  Stepper Motor hardware pins ========== ///
+/// =====================  Stepper motor hardware, config and status  =====================
 
 SPISettings tmc262_spi_config(5000000, MSBFIRST, SPI_MODE3);
 SPISettings tmc2130_spi_config(4000000, MSBFIRST, SPI_MODE3);
@@ -151,9 +148,26 @@ const int M5_stepPin = 20;
 const int M5_dirPin = 21;
 const int M5_csPin = 19;
 
-/// ======== Motion Control ========== ///
+/// config registers
 
-// Hardware interrupt (PIR) TIMER triggering MachineLoop Interrupt.
+TMC262::DRVCONF driverConfig = {0};
+TMC262::CHOPCONF chopperConfig = {0};
+TMC262::SGCSCONF stallGuardConfig = {0};
+TMC262::SMARTEN coolStepConfig = {0};
+TMC262::DRVCTRL driverControl = {0};
+
+/// Status
+
+volatile uint8_t drawFunction = 0;
+volatile int32_t drawIndex = 0;
+
+TMC262::STATUS status_M1 = {0};
+TMC262::STATUS status_M2 = {0};
+TMC262::STATUS status_M3 = {0};
+
+/// ===================== Motion Control =====================
+
+/// Hardware interrupt (PIR) TIMER triggering MachineLoop Interrupt.
 RoboTimer IRQTimer;
 
 /// Interrupt iteration times (speeds).
@@ -168,9 +182,13 @@ float normalSpeed = 100.0f;
 /// operations.
 float machineSpeed = normalSpeed;
 
-/// Track interrupt performance.
-/// Measur highest MachineLoop interrupt time.
-volatile uint32_t max_step_cycles = 0;
+/// prepared Step triggers
+
+bool stepM1 = false;
+bool stepM2 = false;
+bool stepM3 = false;
+bool stepM4 = false;
+bool stepM5 = false;
 
 volatile int32_t M1_pos = 0;
 volatile int32_t M2_pos = 0;
@@ -184,20 +202,10 @@ volatile int8_t M3_direction = 0;
 volatile int8_t M4_direction = 0;
 volatile int8_t M5_direction = 0;
 
-TMC262::DRVCONF driverConfig = {0};
-TMC262::CHOPCONF chopperConfig = {0};
-TMC262::SGCSCONF stallGuardConfig = {0};
-TMC262::SMARTEN coolStepConfig = {0};
-TMC262::DRVCTRL driverControl = {0};
+/// Track performance / measure interrupt-loop time.
+volatile uint32_t max_step_cycles = 0;
 
-/// ======== Motor status ========== ///
-
-volatile uint8_t drawFunction = 0;
-volatile int32_t drawIndex = 0;
-
-TMC262::STATUS status_M1 = {0};
-TMC262::STATUS status_M2 = {0};
-TMC262::STATUS status_M3 = {0};
+/// =====================  =====================
 
 void StartUp()
 {
@@ -432,7 +440,7 @@ FASTRUN void MachineLoop()
         if (requestedState == State::state_mapheight)
         {
             stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
-            mappingState = MappingState::MS_None;
+            mapHeightState = MapHeightState::None;
             activeState = State::state_mapheight;
         }
 
@@ -686,10 +694,10 @@ FASTRUN void MapHeight()
     posX = M3_pos;
     posZ = M4_pos;
 
-    switch (mappingState)
+    switch (mapHeightState)
     {
     /// ================================================
-    case (MappingState::MS_None):
+    case (MapHeightState::None):
     {
         HeightMapSetIndex = -1;
 
@@ -708,12 +716,12 @@ FASTRUN void MapHeight()
             if (posZ != 0)
             {
                 /// Move up first, then return here
-                mappingState = MappingState::MS_Up;
+                mapHeightState = MapHeightState::MoveUp;
             }
             else
             {
                 /// Heightmap complete and safely moved up.
-                mappingState = MappingState::MS_Done;
+                mapHeightState = MapHeightState::Done;
             }
         }
         else
@@ -722,7 +730,7 @@ FASTRUN void MapHeight()
             if (posZ != 0)
             {
                 /// Move up first, then return here.
-                mappingState = MappingState::MS_Up;
+                mapHeightState = MapHeightState::MoveUp;
             }
             else
             {
@@ -734,7 +742,7 @@ FASTRUN void MapHeight()
                 if (posX == moveEndX && posY == moveEndY)
                 {
                     /// Mapping position already reached, proceed to map height.
-                    mappingState = MappingState::MS_Down;
+                    mapHeightState = MapHeightState::MoveDown;
                 }
                 else
                 {
@@ -742,14 +750,14 @@ FASTRUN void MapHeight()
                     Serial.print(moveEndX);
                     Serial.print(" , ");
                     Serial.println(moveEndY);
-                    mappingState = MappingState::MS_XYStart;
+                    mapHeightState = MapHeightState::StartMoveXY;
                 }
             }
         }
         break;
     }
     /// ================================================
-    case (MappingState::MS_Up):
+    case (MapHeightState::MoveUp):
     {
         StepMotors();
         /// Always reset step triggers and then start next iteration.
@@ -763,7 +771,7 @@ FASTRUN void MapHeight()
         if (posZ == 0)
         {
             /// Switch back to state: None
-            mappingState = MappingState::MS_None;
+            mapHeightState = MapHeightState::None;
 
             machineSpeed = normalSpeed;
         }
@@ -783,7 +791,7 @@ FASTRUN void MapHeight()
     }
 
     /// ================================================
-    case (MappingState::MS_XYStart):
+    case (MapHeightState::StartMoveXY):
     {
         /// start new movement
         moveDeltaX = abs(moveEndX - posX);
@@ -800,12 +808,12 @@ FASTRUN void MapHeight()
             moveSteps = (double)moveDeltaY * -0.5;
         }
         moveStep = 0;
-        mappingState = MappingState::MS_XYMove;
+        mapHeightState = MapHeightState::MoveXY;
         break;
     }
 
     /// ================================================
-    case (MappingState::MS_XYMove):
+    case (MapHeightState::MoveXY):
     {
         StepMotors();
         /// Always reset step triggers and then start next iteration.
@@ -818,7 +826,7 @@ FASTRUN void MapHeight()
 
         if (posX == moveEndX && posY == moveEndY)
         {
-            mappingState = MappingState::MS_None;
+            mapHeightState = MapHeightState::None;
             machineSpeed = normalSpeed;
         }
         else
@@ -859,7 +867,7 @@ FASTRUN void MapHeight()
         break;
     }
     /// ================================================
-    case (MappingState::MS_Down):
+    case (MapHeightState::MoveDown):
     {
         /// Skip for now
         /// Set height in the heightmap.
@@ -870,12 +878,12 @@ FASTRUN void MapHeight()
 
         /// Check if we need to map another position in the map.
         /// Switch to state: None
-        mappingState = MappingState::MS_None;
+        mapHeightState = MapHeightState::None;
         break;
     }
 
     /// ================================================
-    case (MappingState::MS_Done):
+    case (MapHeightState::Done):
     {
         Serial.println("Done with heightmap!");
         requestedState = State::state_none;

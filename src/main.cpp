@@ -18,20 +18,6 @@ const int powerSenseCSPin = 34;
 SPISettings spiPowerSenseConfig(16000000, MSBFIRST, SPI_MODE0);
 int32_t powerSenseData = 0;
 
-/// @brief Union to convert int32 to bytearray.
-union byte32
-{
-    int32_t value;
-    byte bytes[4];
-};
-
-// /// @brief Union to convert int64 to bytearray.
-// union byte64
-// {
-//     int64_t value;
-//     byte bytes[8];
-// };
-
 enum command
 {
     BYTE_HOME = 0xF0,
@@ -61,7 +47,7 @@ enum command
 /// PAUSE command               (10 x 0xF4)
 /// EOF command                 (10 x 0xF5)
 /// CLEARHEIGHT command         (10 x 0xF6)
-///  DRAWINSTRUCTION command    (10 x 0xFF)
+/// DRAWINSTRUCTION command    (10 x 0xFF)
 
 /// DrawInstruction:
 /// - 10 byte header 0xFF

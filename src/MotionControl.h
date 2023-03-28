@@ -11,10 +11,10 @@
 
 // total min max Y steps 1595169 | margin (13581)
 #define YMAX 1568000
-// total min max X steps 1127620 | margin (13581)
+// total min maextern int64_t HeightMap[HeightMapSize];x X steps 1127620 | margin (13581)
 #define XMAX 1100000
 
-extern int64_t HeightMap[HeightMapSize];
+extern int64_t HeightMap[];
 
 /// @brief Union to convert int64 to bytearray.
 union byte64
@@ -22,6 +22,14 @@ union byte64
     int64_t value;
     byte bytes[8];
 };
+
+/// @brief Union to convert int32 to bytearray.
+union byte32
+{
+    int32_t value;
+    byte bytes[4];
+};
+
 
 struct DrawInstruction
 {
@@ -42,7 +50,6 @@ struct DrawInstruction
     int64_t steps;
 };
 
-/// @brief State Machine
 enum State
 {
     state_none = 0,
@@ -54,41 +61,52 @@ enum State
     state_eof = 6,
     state_reset = 7,
     state_mapheight = 10,
-    state_clearheight = 11
+    state_clearheight = 11,
 };
 
-/// @brief Statew Machine for Mapping one point.
-enum MappingState
+enum class MachineState {
+    None,
+    Start,
+    Home,
+    Draw,
+    Stop,
+    Idle,
+    Panic,
+    EOL,
+    Reset,
+    MapHeight,
+    ClearHeight
+};
+
+/// @brief State Machine used for drawing lines.
+enum class DrawState {
+    LineStart,
+    Move,
+    Wait,
+    Done
+};
+
+/// @brief State Machine used for homeing.
+enum class HomeState {
+    Zero,
+    Home,
+    Done
+};
+
+/// @brief State Machine used for building a heigtMap.
+enum class MapHeightState 
 {
-    MS_None = 0,
-    MS_Up = 1,
-    MS_XYStart = 2,
-    MS_XYMove = 3,
-    MS_Down = 4,
-    MS_Done = 5
+    None,
+    Choose,
+    MoveUp,
+    StartMoveXY,
+    MoveXY,
+    MoveDown,
+    Done
 };
 
-
-/*
-enum Action
-{
-    action_none = 0,
-    action_moving = 1,
-    action_drawing = 2,
-    action_homeing = 3,
-    action_waiting = 4,
-    action_sleeping = 5,
-    action_mapping = 6,
-    action_panicked = 7,
-    action_draw_newline = 8,
-    action_draw_move = 9,
-    action_draw_draw = 10
-};
-*/
-
-// extern volatile enum Action currentAction;
-extern volatile enum State activeState;
-extern volatile enum State requestedState;
+extern volatile State activeState;
+extern volatile State requestedState;
 
 /// @brief Draw Instruction circular buffer
 /// @attention use power of 2 size so I can use & in stead of modulo.
@@ -129,9 +147,9 @@ extern TMC262::SGCSCONF stallGuardConfig;
 extern TMC262::SMARTEN coolStepConfig;
 extern TMC262::DRVCTRL driverControl;
 
-extern const int M1_csPin;
-extern const int M2_csPin;
-extern const int M3_csPin;
+// extern const int M1_csPin;
+// extern const int M2_csPin;
+// extern const int M3_csPin;
 
 extern volatile bool Limit_Y1_start;
 extern volatile bool Limit_Y1_end;
@@ -191,7 +209,6 @@ FASTRUN void StepX(int8_t dir);
 /// @brief Prepare a step in Y direction
 /// @param dir positive or negative Y direction
 FASTRUN void StepY(int8_t dir);
-
 
 /// @brief Prepare a step in Z direction
 /// @param dir positive or negative Z direction
