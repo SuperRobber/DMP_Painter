@@ -2,11 +2,12 @@
 #include <EEPROM.h>
 #include <SPI.h>
 
-// ===================== Machines task switching =====================
+// ===================== Machines task switching & State Machines =====================
 
 volatile State activeState = state_none;
 volatile State requestedState = state_none;
 
+volatile MapHeightState mapHeightState = MapHeightState::None;
 
 // ===================== Circular buffer for draw instructions. =====================
 
@@ -18,47 +19,45 @@ volatile int64_t receivedInstruction = -1;
 
 // ===================== Height Mapping algorithm. =====================
 
-volatile MapHeightState mapHeightState = MapHeightState::None;
-int64_t HeightMap[HeightMapSize];
-int HeightMapSetIndex = 0;
+volatile int64_t HeightMap[HeightMapSize];
+volatile int HeightMapSetIndex = 0;
 
 
 /// ===================== Drawing variables as part of movement algorithms. =====================
 
+volatile bool moving = true;
+volatile bool lineStarted = false;
 
-bool moving = true;
-bool lineStarted = false;
+volatile int64_t drawDeltaX = 0;
+volatile int64_t drawDeltaY = 0;
+volatile int64_t drawError = 0;
 
-int64_t drawDeltaX = 0;
-int64_t drawDeltaY = 0;
-int64_t drawError = 0;
+volatile moveInstruction move;
+volatile int64_t moveEndX = 0;
+volatile int64_t moveEndY = 0;
+volatile uint8_t moveDirX;
+volatile uint8_t moveDirY;
+volatile int64_t moveDeltaX = 0;
+volatile int64_t moveDeltaY = 0;
+volatile int64_t moveError = 0;
+volatile double moveSteps = 0;
+volatile double moveStep = 0;
 
-int64_t moveEndX = 0;
-int64_t moveEndY = 0;
-uint8_t moveDirX;
-uint8_t moveDirY;
-int64_t moveDeltaX = 0;
-int64_t moveDeltaY = 0;
-int64_t moveError = 0;
-double moveSteps = 0;
-double moveStep = 0;
+volatile int64_t posX = 0;
+volatile int64_t posY = 0;
+volatile int64_t posZ = 0;
 
-int64_t posX = 0;
-int64_t posY = 0;
-int64_t posZ = 0;
+volatile uint64_t sleepTimer = 0;
 
-uint64_t sleepTimer = 0;
+const int workCurrent = 20;
+const int sleepCurrent = 1;
 
-int workCurrent = 20;
-int sleepCurrent = 0;
-
-bool sleeping = false;
-
+volatile bool sleeping = false;
 
 /// ===================== Limit switches =====================
 
 /// Debounce cycle counter
-uint32_t debounceCounter = 0;
+volatile uint32_t debounceCounter = 0;
 
 /// hardware pins
 
@@ -74,27 +73,27 @@ const int Limit_Z_end_pin = 14;
 
 /// Debounce press (ON) counters 
 
-uint8_t panic_on_count = 0;
-uint8_t Limit_Y1_start_on_count = 0;
-uint8_t Limit_Y1_end_on_count = 0;
-uint8_t Limit_Y2_start_on_count = 0;
-uint8_t Limit_Y2_end_on_count = 0;
-uint8_t Limit_X_start_on_count = 0;
-uint8_t Limit_X_end_on_count = 0;
-uint8_t Limit_Z_start_on_count = 0;
-uint8_t Limit_Z_end_on_count = 0;
+volatile uint8_t panic_on_count = 0;
+volatile uint8_t Limit_Y1_start_on_count = 0;
+volatile uint8_t Limit_Y1_end_on_count = 0;
+volatile uint8_t Limit_Y2_start_on_count = 0;
+volatile uint8_t Limit_Y2_end_on_count = 0;
+volatile uint8_t Limit_X_start_on_count = 0;
+volatile uint8_t Limit_X_end_on_count = 0;
+volatile uint8_t Limit_Z_start_on_count = 0;
+volatile uint8_t Limit_Z_end_on_count = 0;
 
 /// Debounce release (OFF) counters 
 
-uint8_t panic_off_count = __UINT8_MAX__;
-uint8_t Limit_Y1_start_off_count = __UINT8_MAX__;
-uint8_t Limit_Y1_end_off_count = __UINT8_MAX__;
-uint8_t Limit_Y2_start_off_count = __UINT8_MAX__;
-uint8_t Limit_Y2_end_off_count = __UINT8_MAX__;
-uint8_t Limit_X_start_off_count = __UINT8_MAX__;
-uint8_t Limit_X_end_off_count = __UINT8_MAX__;
-uint8_t Limit_Z_start_off_count = __UINT8_MAX__;
-uint8_t Limit_Z_end_off_count = __UINT8_MAX__;
+volatile uint8_t panic_off_count = __UINT8_MAX__;
+volatile uint8_t Limit_Y1_start_off_count = __UINT8_MAX__;
+volatile uint8_t Limit_Y1_end_off_count = __UINT8_MAX__;
+volatile uint8_t Limit_Y2_start_off_count = __UINT8_MAX__;
+volatile uint8_t Limit_Y2_end_off_count = __UINT8_MAX__;
+volatile uint8_t Limit_X_start_off_count = __UINT8_MAX__;
+volatile uint8_t Limit_X_end_off_count = __UINT8_MAX__;
+volatile uint8_t Limit_Z_start_off_count = __UINT8_MAX__;
+volatile uint8_t Limit_Z_end_off_count = __UINT8_MAX__;
 
 /// Switch states
 volatile bool panic_switch = false;
@@ -115,12 +114,12 @@ volatile bool isHome = false;
 volatile bool isZero = false;
 volatile bool isMax = false;
 
-
 /// =====================  Stepper motor hardware, config and status  =====================
 
 SPISettings tmc262_spi_config(5000000, MSBFIRST, SPI_MODE3);
 SPISettings tmc2130_spi_config(4000000, MSBFIRST, SPI_MODE3);
-int spi_cs_delay = 50;
+
+const int spi_cs_delay = 50;
 
 const int M1_M2_M3_ennPin = 4; // Inverted input (LOW means enable)
 const int M4_M5_enPin = 10;    // Inverted input (LOW means enable)
@@ -148,7 +147,7 @@ const int M5_stepPin = 20;
 const int M5_dirPin = 21;
 const int M5_csPin = 19;
 
-/// config registers
+/// Config registers
 
 TMC262::DRVCONF driverConfig = {0};
 TMC262::CHOPCONF chopperConfig = {0};
@@ -171,24 +170,24 @@ TMC262::STATUS status_M3 = {0};
 RoboTimer IRQTimer;
 
 /// Interrupt iteration times (speeds).
-float moveSpeed = 15.0f;
-float drawSpeed = 15.0f;
-float homeSpeed = 100.0f;
-float normalSpeed = 100.0f;
+volatile float moveSpeed = 15.0f;
+volatile float drawSpeed = 15.0f;
+volatile float homeSpeed = 100.0f;
+volatile float normalSpeed = 100.0f;
 
 /// @brief Interrupt iteration time (speed).
 /// Interrupt type is always set to machineSpeed,
 /// where machine speed is set depending on different
 /// operations.
-float machineSpeed = normalSpeed;
+volatile float machineSpeed = normalSpeed;
 
 /// prepared Step triggers
 
-bool stepM1 = false;
-bool stepM2 = false;
-bool stepM3 = false;
-bool stepM4 = false;
-bool stepM5 = false;
+volatile bool stepM1 = false;
+volatile bool stepM2 = false;
+volatile bool stepM3 = false;
+volatile bool stepM4 = false;
+volatile bool stepM5 = false;
 
 volatile int32_t M1_pos = 0;
 volatile int32_t M2_pos = 0;
@@ -517,7 +516,16 @@ FASTRUN void StepMotors()
     // }
 
     /// Always reset step triggers
-    stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
+    stepM1 = false;
+    stepM2 = false;
+    stepM3 = false;
+    stepM4 = false;
+    stepM5 = false;
+    
+    posX=M3_pos;
+    posY=M1_pos;
+    posZ=M4_pos;
+    
 }
 
 FASTRUN void SetDirectionsAndLimits()
@@ -986,7 +994,10 @@ FASTRUN void CalculateDrawSteps()
                         // we have arrived at the start of the line?;
                         if (iBuffer[iBufferReadIndex].type == 1)
                         {
-                            // Straight Line
+                            /// Straight Line
+                            /// TODO: drawError ?    
+                            /// TODO: drawDeltaX ?    
+                            /// TODO: drawDeltaX ?    
                         }
                         if (iBuffer[iBufferReadIndex].type == 2)
                         {
@@ -1360,9 +1371,7 @@ void updateStepperStatus()
         Serial.println("M3 Short on COIL B detected.");
 }
 
-//========                                             ==========//
-//======== Configuration for Switches en Motor Drivers ==========//
-//========                                             ==========//
+/// ======== Configuration for Switches en Motor Drivers ==========
 
 void configureSwitches()
 {
@@ -1376,33 +1385,6 @@ void configureSwitches()
     pinMode(Limit_Z_end_pin, INPUT_PULLUP);
 
     pinMode(panic_pin, INPUT_PULLUP);
-}
-
-TMC262::STATUS setTMC262Register(uint8_t bytes[3], int CSPIN)
-{
-    TMC262::STATUS st = {0};
-    SPI1.beginTransaction(tmc262_spi_config);
-    digitalWriteFast(CSPIN, 0);
-    delayNanoseconds(spi_cs_delay);
-    st.bytes[2] = SPI1.transfer(bytes[2]);
-    st.bytes[1] = SPI1.transfer(bytes[1]);
-    st.bytes[0] = SPI1.transfer(bytes[0]);
-    digitalWriteFast(CSPIN, 1);
-    SPI1.endTransaction();
-    return st;
-}
-
-TMC2130::SPI_STATUS setTMC2130Register(uint8_t address, uint32_t data, int CSPIN)
-{
-    TMC2130::SPI_STATUS st = {0};
-    SPI1.beginTransaction(tmc2130_spi_config);
-    digitalWriteFast(CSPIN, 0);
-    delayNanoseconds(spi_cs_delay);
-    st.value = SPI1.transfer(address | 0x80);
-    SPI1.transfer32(data);
-    digitalWriteFast(CSPIN, 1);
-    SPI1.endTransaction();
-    return st;
 }
 
 void configureStepperDrivers()
@@ -1535,7 +1517,7 @@ void configureStepperDrivers()
 
     // Write IHOLD_IRUN
     TMC2130::IHOLD_IRUN CurrentControl = {0};
-    CurrentControl.IHOLD = 0;
+    CurrentControl.IHOLD = 2;
     CurrentControl.IRUN = 16;
     CurrentControl.IHOLDDELAY = 15;
     setTMC2130Register(TMC2130::registers::reg_IHOLD_IRUN, CurrentControl.data, M4_csPin);
@@ -1599,4 +1581,31 @@ void configureStepperDrivers()
     // digitalWriteFast(M3_dirPin,0);
     // digitalWriteFast(M4_dirPin,1);
     // digitalWriteFast(M5_dirPin,0);
+}
+
+TMC262::STATUS setTMC262Register(uint8_t bytes[3], int CSPIN)
+{
+    TMC262::STATUS st = {0};
+    SPI1.beginTransaction(tmc262_spi_config);
+    digitalWriteFast(CSPIN, 0);
+    delayNanoseconds(spi_cs_delay);
+    st.bytes[2] = SPI1.transfer(bytes[2]);
+    st.bytes[1] = SPI1.transfer(bytes[1]);
+    st.bytes[0] = SPI1.transfer(bytes[0]);
+    digitalWriteFast(CSPIN, 1);
+    SPI1.endTransaction();
+    return st;
+}
+
+TMC2130::SPI_STATUS setTMC2130Register(uint8_t address, uint32_t data, int CSPIN)
+{
+    TMC2130::SPI_STATUS st = {0};
+    SPI1.beginTransaction(tmc2130_spi_config);
+    digitalWriteFast(CSPIN, 0);
+    delayNanoseconds(spi_cs_delay);
+    st.value = SPI1.transfer(address | 0x80);
+    SPI1.transfer32(data);
+    digitalWriteFast(CSPIN, 1);
+    SPI1.endTransaction();
+    return st;
 }

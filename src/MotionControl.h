@@ -1,3 +1,16 @@
+/// TODO: 
+///
+/// 1. Better SLEEP FUNCTION
+/// SetCurrent() calls setTMC262Register from inside interrupt. 
+/// (requestAwake ? is Awake ? some shared flags ?)
+///
+/// 2. Add status from M4 and M5
+///
+/// 3. refactor main StateMachine
+///
+/// Separate Configuration // Hardware setup to another file ?
+///
+
 #ifndef MOTIONCONTROL_H
 #define MOTIONCONTROL_H
 
@@ -5,16 +18,8 @@
 #include "TMC_Registers.h"
 #include <Arduino.h>
 
-#define HeightMapWidth 4
-#define HeightMapHeight 6
-#define HeightMapSize 24
-
-// total min max Y steps 1595169 | margin (13581)
-#define YMAX 1568000
-// total min maextern int64_t HeightMap[HeightMapSize];x X steps 1127620 | margin (13581)
-#define XMAX 1100000
-
-extern int64_t HeightMap[];
+#define XMAX 1100000 // total X steps +- 1127620 | margin (13581)
+#define YMAX 1568000 // total Y steps +- 1595169 | margin (13581)
 
 /// @brief Union to convert int64 to bytearray.
 union byte64
@@ -29,7 +34,6 @@ union byte32
     int32_t value;
     byte bytes[4];
 };
-
 
 struct DrawInstruction
 {
@@ -49,6 +53,21 @@ struct DrawInstruction
     int64_t error;
     int64_t steps;
 };
+
+struct moveInstruction
+{
+    int8_t dirX;
+    int8_t dirY;    
+    int64_t endX;
+    int64_t endY;
+    int64_t deltaX;
+    int64_t deltaY;   
+    int64_t error;
+    double steps;
+    double step; 
+};
+
+// ===================== Machines task switching & State Machines =====================
 
 enum State
 {
@@ -108,6 +127,8 @@ enum class MapHeightState
 extern volatile State activeState;
 extern volatile State requestedState;
 
+// ===================== Circular buffer for draw instructions. =====================
+
 /// @brief Draw Instruction circular buffer
 /// @attention use power of 2 size so I can use & in stead of modulo.
 /// e.g. tailIndex = (tailIndex + 1) & 63;
@@ -125,31 +146,16 @@ extern volatile int64_t requestedInstruction;
 /// @brief Index for last received Instruction
 extern volatile int64_t receivedInstruction;
 
-// extern volatile uint32_t plotter_pos_x;
-// extern volatile uint32_t plotter_pos_y;
 
-/// ----------------------------------------
-/// Motor and Switch settings and variables
+// ===================== Height Mapping algorithm. =====================
 
-extern volatile int32_t M1_pos;
-extern volatile int32_t M2_pos;
-extern volatile int32_t M3_pos;
-extern volatile int32_t M4_pos;
-extern volatile int32_t M5_pos;
+#define HeightMapWidth 4
+#define HeightMapHeight 6
+#define HeightMapSize 24
 
-extern TMC262::STATUS status_M1;
-extern TMC262::STATUS status_M2;
-extern TMC262::STATUS status_M3;
+extern volatile int64_t HeightMap[];
 
-extern TMC262::DRVCONF driverConfig;
-extern TMC262::CHOPCONF chopperConfig;
-extern TMC262::SGCSCONF stallGuardConfig;
-extern TMC262::SMARTEN coolStepConfig;
-extern TMC262::DRVCTRL driverControl;
-
-// extern const int M1_csPin;
-// extern const int M2_csPin;
-// extern const int M3_csPin;
+/// ===================== Limit switch states (pressed is true) =====================
 
 extern volatile bool Limit_Y1_start;
 extern volatile bool Limit_Y1_end;
@@ -160,6 +166,10 @@ extern volatile bool Limit_X_end;
 extern volatile bool Limit_Z_start;
 extern volatile bool Limit_Z_end;
 
+/// =====================  Stepper motor hardware, config and status  =====================
+
+/// Status
+
 /// @brief Used to display status.
 /// Indicating current function of the machine.
 extern volatile uint8_t drawFunction;
@@ -167,6 +177,27 @@ extern volatile uint8_t drawFunction;
 /// @brief Used to display status.
 /// Current line being drawn.
 extern volatile int32_t drawIndex;
+
+/// @brief union for Motor 1 status register.
+extern TMC262::STATUS status_M1;
+
+/// @brief union for Motor 2 status register.
+extern TMC262::STATUS status_M2;
+
+/// @brief union for Motor 3 status register.
+extern TMC262::STATUS status_M3;
+
+/// ===================== Motion Control =====================
+
+/// motor position (global for status display)
+
+extern volatile int32_t M1_pos;
+extern volatile int32_t M2_pos;
+extern volatile int32_t M3_pos;
+extern volatile int32_t M4_pos;
+extern volatile int32_t M5_pos;
+
+/// ===================== FUNCTIONS that are part of the intterrupt loop (FASTRUN) =====================
 
 /// @brief The main motion control loop. Called via interrupt timer. To move as
 /// continuous as possible, prepared motor stepping is performed at beginning of each
@@ -183,6 +214,7 @@ FASTRUN void CalculateHomeSteps();
 // Calculate steps & directions for next iteration.
 FASTRUN void CalculateDrawSteps();
 
+/// @brief The height mapping algorithm.
 FASTRUN void MapHeight();
 
 /// @brief Perform Motor Steps that are calculated in previous iteration
@@ -224,6 +256,8 @@ FASTRUN void CalculateStraightLine();
 /// @brief Draw / Step along a Quadratic Bezier
 FASTRUN void CalculateQuadBezier();
 
+/// ===================== FUNCTIONS not part of the intterrupt loop =====================
+
 /// @brief Startup procedure, sets up interrupt timer and
 /// enables stepper motors.
 void StartUp();
@@ -235,13 +269,20 @@ void configureSwitches();
 /// all the stepper driver registers.
 void configureStepperDrivers();
 
-/// @brief Function to set TMC263 Stepper Driver register
+/// @brief Reads status registers from Stepper drivers
+void updateStepperStatus();
+
+/// @brief Function to set TMC262 Stepper Driver register
 /// @param bytes Register data (24bits)
 /// @param CSPIN SPI pin the driver is attached to
 /// @return A status union with various driver flags and driver information
 TMC262::STATUS setTMC262Register(uint8_t bytes[3], int CSPIN);
 
-/// @brief Reads status registers from Stepper drivers
-void updateStepperStatus();
+/// @brief Function to set TMC263 Stepper Driver register
+/// @param address Register address (8bits)
+/// @param data Register data (32bits)
+/// @param CSPIN SPI pin the driver is attached to
+/// @return A status union with various driver flags and driver information
+TMC2130::SPI_STATUS setTMC2130Register(uint8_t address, uint32_t data, int CSPIN);
 
 #endif
