@@ -60,19 +60,14 @@ enum State
 /// @brief Statew Machine for Mapping one point.
 enum MappingState
 {
-    None = 0,
-    Up = 1,
-    XYStart = 2,
-    XYMove = 3,
-    Down = 4,
-    Done = 5
+    MS_None = 0,
+    MS_Up = 1,
+    MS_XYStart = 2,
+    MS_XYMove = 3,
+    MS_Down = 4,
+    MS_Done = 5
 };
 
-enum AnotherState
-{
-    None = 1,
-    Up=0
-};
 
 /*
 enum Action
@@ -169,6 +164,8 @@ FASTRUN void CalculateHomeSteps();
 /// @brief The drawing algorithm.
 // Calculate steps & directions for next iteration.
 FASTRUN void CalculateDrawSteps();
+
+FASTRUN void MapHeight();
 
 /// @brief Perform Motor Steps that are calculated in previous iteration
 /// and updates position variables.
