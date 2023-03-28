@@ -120,7 +120,7 @@ void loop()
             getSerial(bytesToRead);
         }
 
-        if (activeState == state_draw && requestedState != state_eof)
+        if (activeMode == Mode::Draw && requestedMode != Mode::EOL)
         {
             /// Request draw instructions if there is room in the buffer. If the
             /// buffer is full, skip and wait for drawing to advance, before
@@ -247,7 +247,7 @@ void getSerial(int bytesToRead)
             if (serialHomeHeaderCount == 10)
             {
                 Serial.println("Received Home command");
-                requestedState = state_home;
+                requestedMode = Mode::Home;
                 serialHomeHeaderCount = 0;
             }
         }
@@ -263,7 +263,7 @@ void getSerial(int bytesToRead)
             if (serialDrawHeaderCount == 10)
             {
                 Serial.println("Received Draw command");
-                requestedState = state_draw;
+                requestedMode = Mode::Draw;
                 serialDrawHeaderCount = 0;
             }
         }
@@ -279,7 +279,7 @@ void getSerial(int bytesToRead)
             if (serialResetHeaderCount == 10)
             {
                 Serial.println("Received Reset command");
-                requestedState = state_reset;
+                requestedMode = Mode::Reset;
                 serialResetHeaderCount = 0;
             }
         }
@@ -295,7 +295,7 @@ void getSerial(int bytesToRead)
             if (serialHeightMapHeaderCount == 10)
             {
                 Serial.println("Received HeightMap command");
-                requestedState = state_mapheight;
+                requestedMode = Mode::MapHeight;
                 serialHeightMapHeaderCount = 0;
             }
         }
@@ -311,7 +311,7 @@ void getSerial(int bytesToRead)
             if (serialPauseHeaderCount == 10)
             {
                 Serial.println("Received Pause command");
-                requestedState = state_none;
+                requestedMode = Mode::None;
                 serialPauseHeaderCount = 0;
             }
         }
@@ -327,7 +327,7 @@ void getSerial(int bytesToRead)
             if (serialEOFHeaderCount == 10)
             {
                 Serial.println("Received EOF command");
-                requestedState = state_eof;
+                requestedMode = Mode::EOL;
                 serialEOFHeaderCount = 0;
             }
         }
@@ -343,7 +343,7 @@ void getSerial(int bytesToRead)
             if (serialClearHeightMapHeaderCount == 10)
             {
                 Serial.println("Received Clear Height command");
-                requestedState = state_clearheight;
+                requestedMode = Mode::ClearHeight;
                 serialClearHeightMapHeaderCount = 0;
             }
         }

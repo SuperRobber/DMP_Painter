@@ -4,8 +4,11 @@
 
 // ===================== Machines task switching & State Machines =====================
 
-volatile State activeState = state_none;
-volatile State requestedState = state_none;
+// volatile State activeMode = Mode::None;
+// volatile State requestedMode = Mode::None;
+
+volatile Mode activeMode = Mode::None;
+volatile Mode requestedMode = Mode::None;
 
 volatile MapHeightState mapHeightState = MapHeightState::None;
 
@@ -33,6 +36,7 @@ volatile int64_t drawDeltaY = 0;
 volatile int64_t drawError = 0;
 
 volatile moveInstruction move;
+
 volatile int64_t moveEndX = 0;
 volatile int64_t moveEndY = 0;
 volatile uint8_t moveDirX;
@@ -218,8 +222,8 @@ void StartUp()
         }
         HeightMap[i] = b64.value;
     }
-    activeState = state_none;
-    requestedState = state_none;
+    activeMode = Mode::None;
+    requestedMode = Mode::None;
 
     setCurrent(sleepCurrent);
 
@@ -231,7 +235,7 @@ void StartUp()
 
     delay(500);
 
-    requestedState = state_home;
+    requestedMode = Mode::Home;
     lineStarted = false;
 
     /// Configure interrupt timer
@@ -246,9 +250,9 @@ FASTRUN void MachineLoop()
     /// track interrupt time performance
     uint32_t starttime = ARM_DWT_CYCCNT;
 
-    switch (activeState)
+    switch (activeMode)
     {
-    case State::state_draw:
+    case Mode::Draw:
     {
         /// Perform Motor Steps.
         /// As calculated in previous iteration and update positions.
@@ -268,9 +272,9 @@ FASTRUN void MachineLoop()
                 lineStarted = false;
 
                 /// Is there a request to Pause drawing?
-                if (requestedState == state_none)
+                if (requestedMode == Mode::None)
                 {
-                    activeState = state_none;
+                    activeMode = Mode::None;
                     // Do not execute the rest of this case.
                     break;
                 }
@@ -298,11 +302,11 @@ FASTRUN void MachineLoop()
         {
             /// Nothing left to do right now.
 
-            if (requestedState == state_eof)
+            if (requestedMode == Mode::EOL)
             {
                 /// End of File reached. Done drawing all instructions.
-                requestedState = state_none;
-                activeState = state_none;
+                requestedMode = Mode::None;
+                activeMode = Mode::None;
             }
             else
             {
@@ -323,7 +327,7 @@ FASTRUN void MachineLoop()
         }
         break;
     }
-    case State::state_home:
+    case Mode::Home:
     {
         if (!isHome)
         {
@@ -349,14 +353,14 @@ FASTRUN void MachineLoop()
         }
         else
         {
-            if (requestedState == state_home)
-                requestedState = state_none;
+            if (requestedMode == Mode::Home)
+                requestedMode = Mode::None;
 
-            activeState = state_none;
+            activeMode = Mode::None;
         }
         break;
     }
-    case State::state_mapheight:
+    case Mode::MapHeight:
     {
 
         MapHeight();
@@ -371,7 +375,7 @@ FASTRUN void MachineLoop()
         break;
     }
 
-    case State::state_clearheight:
+    case Mode::ClearHeight:
     {
         /// clear Heightmap and EEPROM
         for (int i = 0; i < HeightMapSize; i++)
@@ -385,11 +389,11 @@ FASTRUN void MachineLoop()
             }
         }
         Serial.println("HeightMap cleared.");
-        requestedState = State::state_none;
-        activeState = State::state_none;
+        requestedMode = Mode::None;
+        activeMode = Mode::None;
         break;
     }
-    case State::state_none:
+    case Mode::None:
     {
         if (!sleeping)
         {
@@ -405,7 +409,7 @@ FASTRUN void MachineLoop()
             sleepTimer = 0;
         }
 
-        if (requestedState == state_draw)
+        if (requestedMode == Mode::Draw)
         {
             stepM1 = false;
             stepM2 = false;
@@ -413,39 +417,39 @@ FASTRUN void MachineLoop()
             stepM4 = false;
             stepM5 = false;
             drawSpeed = 100.0f;
-            activeState = state_draw;
+            activeMode = Mode::Draw;
         }
 
-        if (requestedState == state_reset)
+        if (requestedMode == Mode::Reset)
         {
             iBufferReadIndex = 0;
             iBufferWriteIndex = 0;
             requestedInstruction = -1;
             receivedInstruction = -1;
             drawIndex = 0;
-            requestedState = state_none;
+            requestedMode = Mode::None;
         }
 
-        if (requestedState == state_home)
+        if (requestedMode == Mode::Home)
         {
             isHome = false;
             isZero = false;
             isMax = true;
             stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
             homeSpeed = 100.0f;
-            activeState = state_home;
+            activeMode = Mode::Home;
         }
 
-        if (requestedState == State::state_mapheight)
+        if (requestedMode == Mode::MapHeight)
         {
             stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
             mapHeightState = MapHeightState::None;
-            activeState = State::state_mapheight;
+            activeMode = Mode::MapHeight;
         }
 
-        if (requestedState == State::state_clearheight)
+        if (requestedMode == Mode::ClearHeight)
         {
-            activeState = State::state_clearheight;
+            activeMode = Mode::ClearHeight;
         }
 
         machineSpeed = 100.0f;
@@ -894,8 +898,8 @@ FASTRUN void MapHeight()
     case (MapHeightState::Done):
     {
         Serial.println("Done with heightmap!");
-        requestedState = State::state_none;
-        activeState = State::state_none;
+        requestedMode = Mode::None;
+        activeMode = Mode::None;
         break;
     }
     }

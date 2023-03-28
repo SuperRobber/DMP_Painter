@@ -68,7 +68,7 @@ struct moveInstruction
 };
 
 // ===================== Machines task switching & State Machines =====================
-
+/*
 enum State
 {
     state_none = 0,
@@ -82,8 +82,9 @@ enum State
     state_mapheight = 10,
     state_clearheight = 11,
 };
+*/
 
-enum class MachineState {
+enum class Mode {
     None,
     Start,
     Home,
@@ -124,8 +125,8 @@ enum class MapHeightState
     Done
 };
 
-extern volatile State activeState;
-extern volatile State requestedState;
+extern volatile Mode activeMode;
+extern volatile Mode requestedMode;
 
 // ===================== Circular buffer for draw instructions. =====================
 
