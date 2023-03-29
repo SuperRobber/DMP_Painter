@@ -28,10 +28,10 @@ int32_t powerSenseData = 0;
 /// DRAW command                (10 x 0xF1)
 /// RESET command               (10 x 0xF2)
 /// MAPHEIGHT command           (10 x 0xF3)
-/// PAUSE command               (10 x 0xF4)
-/// EOF command                 (10 x 0xF5)
+/// STOP command               (10 x 0xF4)
+/// EOL command                 (10 x 0xF5)
 /// CLEARHEIGHT command         (10 x 0xF6)
-/// DRAWINSTRUCTION command    (10 x 0xFF)
+/// DRAWINSTRUCTION command     (10 x 0xFF)
 
 /// DrawInstruction:
 /// - 10 byte header 0xFF
@@ -45,30 +45,32 @@ enum command
     BYTE_DRAW = 0xF1,
     BYTE_RESET = 0xF2,
     BYTE_MAPHEIGHT = 0xF3,
-    BYTE_PAUSE = 0xF4,
-    BYTE_EOF = 0xF5,
+    BYTE_STOP = 0xF4,
+    BYTE_EOL = 0xF5,
     BYTE_CLEARHEIGHT = 0xF6,
     BYTE_DRAW_INSTRUCTION = 0xFF
 };
 
 /// ===================== Serial protocol =====================
+
 byte serialMessageData[250]; /// 250bytes reserved for serial message data.
 int serialMessageSize = 0;
-int serialInstructionHeaderCount = 0;
-bool serialInstructionStarted = false;
 int serialMessageByteCount = 0;
 int serialMessageChecksumByteCount = 0;
+bool serialInstructionStarted = false;
 int32_t serialMessageCalculatedChecksum = 0;
 byte32 serialMessageReceivedChecksum = {0};
 
 // counters to parse data headers (see DATA LAYOUT)
+
+int serialInstructionHeaderCount = 0;
 int serialHomeHeaderCount = 0;
-int serialPauseHeaderCount = 0;
+int serialStopHeaderCount = 0;
 int serialHeightMapHeaderCount = 0;
 int serialClearHeightMapHeaderCount = 0;
 int serialResetHeaderCount = 0;
 int serialDrawHeaderCount = 0;
-int serialEOFHeaderCount = 0;
+int serialEOLHeaderCount = 0;
 
 void getSerial(int bytesToRead);
 
@@ -181,30 +183,12 @@ void loop()
             status += "$";
             status += String((powerSenseData - 2047) * 12);
             status += "$";
-            for (int s = 1; s < 9; s++)
+            for (int s = 0; s < numSwitches; s++)
             {
                 status += String(switches[s].pressed);
                 status += "$";
             }
-            /*
-            status += String(Limit_Y1_start);
-            status += "$";
-            status += String(Limit_Y1_end);
-            status += "$";
-            status += String(Limit_Y2_start);
-            status += "$";
-            status += String(Limit_Y2_end);
-            status += "$";
-            status += String(Limit_X_start);
-            status += "$";
-            status += String(Limit_X_end);
-            status += "$";
-            status += String(Limit_Z_start);
-            status += "$";
-            status += String(Limit_Z_end);
-            status += "$";
-            */
-            status += drawFunction;
+            status += (int) statusFunction;
             status += "$";
             status += drawIndex;
             status += "$";
@@ -217,14 +201,15 @@ void loop()
     {
         if (disconnectTimer > 60000)
         {
-            /// We are not / no longer connected. All drawing instuction that
-            /// are currently in buffer will be progressed
+            /// We are not / no longer connected. All drawing instructions that
+            /// are currently in buffer will still be processed.
 
             /// TODO: Pen up if we are in drawing state ?  Go home?
         }
     }
 }
-
+/// @brief Parse data from serial buffer into commands or drawing instructions
+/// @param bytesToRead Number of bytes to process.
 void getSerial(int bytesToRead)
 {
     // read chars from serial port and convert to a byte array
@@ -300,36 +285,36 @@ void getSerial(int bytesToRead)
             serialHeightMapHeaderCount = 0;
         }
 
-        /// Check for PAUSE command header.
-        if (byteBuffer[i] == command::BYTE_PAUSE)
+        /// Check for STOP command header.
+        if (byteBuffer[i] == command::BYTE_STOP)
         {
-            serialPauseHeaderCount++;
-            if (serialPauseHeaderCount == 10)
+            serialStopHeaderCount++;
+            if (serialStopHeaderCount == 10)
             {
-                Serial.println("Received Pause command");
-                requestedMode = Mode::None;
-                serialPauseHeaderCount = 0;
+                Serial.println("Received Stop command");
+                requestedMode = Mode::Stop;
+                serialStopHeaderCount = 0;
             }
         }
         else
         {
-            serialPauseHeaderCount = 0;
+            serialStopHeaderCount = 0;
         }
 
         /// Check for EOF command header.
-        if (byteBuffer[i] == command::BYTE_EOF)
+        if (byteBuffer[i] == command::BYTE_EOL)
         {
-            serialEOFHeaderCount++;
-            if (serialEOFHeaderCount == 10)
+            serialEOLHeaderCount++;
+            if (serialEOLHeaderCount == 10)
             {
                 Serial.println("Received EOF command");
                 requestedMode = Mode::EOL;
-                serialEOFHeaderCount = 0;
+                serialEOLHeaderCount = 0;
             }
         }
         else
         {
-            serialEOFHeaderCount = 0;
+            serialEOLHeaderCount = 0;
         }
 
         //// Check for CLEARHEIGHT command header.
@@ -413,7 +398,7 @@ void getSerial(int bytesToRead)
                         if (receivedIndex.value == requestedInstruction)
                         {
                             /// Instruction indices match.
-                            /// The requested instruction has been received correctly.
+                            /// The requested instruction is received correctly.
 
                             /// Parse values directly into a new drawInstruction in our drawInstructionBuffer.
                             /// @attention Interleave values with a zero byte as part of the binary protocol

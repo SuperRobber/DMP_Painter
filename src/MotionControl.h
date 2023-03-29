@@ -3,20 +3,26 @@
 /// 1. Better SLEEP FUNCTION
 /// SetCurrent() calls setTMC262Register from inside interrupt.
 /// (requestAwake ? is Awake ? some shared flags ?)
+/// Make sure we do not set 'in motion'.
 ///
 /// 2. Add status from M4 and M5
 ///
-/// 3. refactor main StateMachine
+/// 3. refactor Draw StateMachine
 ///
-/// Separate Configuration // Hardware setup to another file ?
+/// 4. check calculate straightline ? not setting delta
 ///
+/// 5. Separate Configuration // Hardware setup to another file ?
+///
+/// 6. Pause = Stop ?
+/// 6a. Add stop to Home
+/// 6b. Add stop to Map   
 
 #ifndef MOTIONCONTROL_H
 #define MOTIONCONTROL_H
 
+#include <Arduino.h>
 #include "RoboTimer.h"
 #include "TMC_Registers.h"
-#include <Arduino.h>
 
 #define XMAX 1100000 // total X steps +- 1127620 | margin (13581)
 #define YMAX 1568000 // total Y steps +- 1595169 | margin (13581)
@@ -67,7 +73,6 @@ struct MoveInstruction
     double step;
 };
 
-
 // ===================== Machines task switching & State Machines =====================
 
 enum class Mode
@@ -88,6 +93,7 @@ enum class Mode
 /// @brief State Machine used for drawing lines.
 enum class DrawState
 {
+    None,
     LineStart,
     Move,
     Wait,
@@ -97,8 +103,9 @@ enum class DrawState
 /// @brief State Machine used for homing.
 enum class HomeState
 {
+    None,
+    Limit,
     Zero,
-    Home,
     Done
 };
 
@@ -148,53 +155,55 @@ extern volatile int64_t HeightMap[];
 
 /// Switch hardware pins
 
-#define pinPanic   23
+#define pinPanic 23
 #define pinY1Start 36
-#define pinY1End   35
+#define pinY1End 35
 #define pinY2Start 38
-#define pinY2End   37
-#define pinXStart  40
-#define pinXEnd    39
-#define pinZStart  41
-#define pinZEnd    14
+#define pinY2End 37
+#define pinXStart 40
+#define pinXEnd 39
+#define pinZStart 41
+#define pinZEnd 14
 
 /// Switch array Index names
 
-#define swPanic   0
+#define swPanic 0
 #define swY1Start 1
-#define swY1End   2
+#define swY1End 2
 #define swY2Start 3
-#define swY2End   4
-#define swXStart  5
-#define swXEnd    6
-#define swZStart  7
-#define swZEnd    8
+#define swY2End 4
+#define swXStart 5
+#define swXEnd 6
+#define swZStart 7
+#define swZEnd 8
 
 const int numSwitches = 9;
 
-struct LimitSwitch {
+struct LimitSwitch
+{
     uint8_t hwPin;
     uint8_t onBounce;
     uint8_t offBounce;
     bool pressed;
 };
 
-extern volatile LimitSwitch switches[numSwitches];
+extern volatile LimitSwitch switches[];
 
-/*
-extern volatile bool Limit_Y1_start;
-extern volatile bool Limit_Y1_end;
-extern volatile bool Limit_Y2_start;
-extern volatile bool Limit_Y2_end;
-extern volatile bool Limit_X_start;
-extern volatile bool Limit_X_end;
-extern volatile bool Limit_Z_start;
-extern volatile bool Limit_Z_end;
-*/
+/// =====================  Status  =====================
 
-/// =====================  Stepper motor hardware, config and status  =====================
 
-/// Status
+enum class StatusFunction {
+    Idle = 0,
+    Waiting = 1,
+    Moving = 2,
+    Drawing = 3,
+    Homing = 4,
+    Mapping = 5,
+};
+
+/// @brief Used to display status.
+/// Indicating current action of the machine.
+extern volatile StatusFunction statusFunction;
 
 /// @brief Used to display status.
 /// Indicating current function of the machine.
@@ -217,6 +226,15 @@ extern TMC262::STATUS status_M3;
 
 /// motor position (global for status display)
 
+// struct Stepper
+// {
+//     int32_t pos;
+//     int8_t direction;
+//     bool step;
+// };
+
+// extern volatile Stepper motors[];
+
 extern volatile int32_t M1_pos;
 extern volatile int32_t M2_pos;
 extern volatile int32_t M3_pos;
@@ -236,8 +254,10 @@ FASTRUN void MachineLoop();
 FASTRUN void CalculateHomeSteps();
 
 /// @brief The drawing algorithm.
-// Calculate steps & directions for next iteration.
 FASTRUN void CalculateDrawSteps();
+
+/// @brief The height mapping algorithm.
+FASTRUN void Home();
 
 /// @brief The height mapping algorithm.
 FASTRUN void MapHeight();

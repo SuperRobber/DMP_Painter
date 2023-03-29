@@ -2,12 +2,10 @@
 #include <EEPROM.h>
 #include <SPI.h>
 
-// ===================== Machines task switching & State Machines =====================
+// ===================== Machines task switching / Machine modes =====================
 
 volatile Mode activeMode = Mode::None;
 volatile Mode requestedMode = Mode::None;
-
-volatile MapHeightState mapHeightState = MapHeightState::None;
 
 // ===================== Circular buffer for draw instructions. =====================
 
@@ -17,12 +15,9 @@ volatile uint8_t iBufferReadIndex = 0;
 volatile int64_t requestedInstruction = -1;
 volatile int64_t receivedInstruction = -1;
 
-// ===================== Height Mapping algorithm. =====================
+// ===================== Draw algorithm. =====================
 
-volatile int64_t HeightMap[HeightMapSize];
-volatile int HeightMapSetIndex = 0;
-
-/// ===================== Drawing variables as part of movement algorithms. =====================
+volatile DrawState drawState = DrawState::None;
 
 volatile bool moving = true;
 volatile bool lineStarted = false;
@@ -31,27 +26,25 @@ volatile int64_t drawDeltaX = 0;
 volatile int64_t drawDeltaY = 0;
 volatile int64_t drawError = 0;
 
-volatile MoveInstruction move;
+// ===================== Home algorithm. =====================
 
-// volatile int64_t move.endX = 0;
-// volatile int64_t move.endY = 0;
-// volatile uint8_t move.dirX;
-// volatile uint8_t move.dirY;
-// volatile int64_t move.deltaX = 0;
-// volatile int64_t move.deltaY = 0;
-// volatile int64_t move.error = 0;
-// volatile double moveSteps = 0;
-// volatile double moveStep = 0;
+volatile HomeState homeState = HomeState::None;
 
-volatile int64_t posX = 0;
-volatile int64_t posY = 0;
-volatile int64_t posZ = 0;
+// volatile bool isHome = false;
+// volatile bool isZero = false;
+// volatile bool isMax = false;
+
+// ===================== Height Mapping algorithm. =====================
+
+volatile MapHeightState mapHeightState = MapHeightState::None;
+volatile int64_t HeightMap[HeightMapSize];
+volatile int HeightMapSetIndex = 0;
+
+/// ===================== Power Saving =====================
 
 volatile uint64_t sleepTimer = 0;
-
 const int workCurrent = 20;
 const int sleepCurrent = 1;
-
 volatile bool sleeping = false;
 
 /// ===================== Limit switches =====================
@@ -61,61 +54,6 @@ volatile uint32_t debounceCounter = 0;
 
 /// Collection of switches.
 volatile LimitSwitch switches[numSwitches];
-
-/*
-const int panic_pin = 23;
-const int Limit_Y1_start_pin = 36;
-const int Limit_Y1_end_pin = 35;
-const int Limit_Y2_start_pin = 38;
-const int Limit_Y2_end_pin = 37;
-const int Limit_X_start_pin = 40;
-const int Limit_X_end_pin = 39;
-const int Limit_Z_start_pin = 41;
-const int Limit_Z_end_pin = 14;
-
-/// Debounce press (ON) counters
-
-volatile uint8_t panic_on_count = 0;
-volatile uint8_t Limit_Y1_start_on_count = 0;
-volatile uint8_t Limit_Y1_end_on_count = 0;
-volatile uint8_t Limit_Y2_start_on_count = 0;
-volatile uint8_t Limit_Y2_end_on_count = 0;
-volatile uint8_t Limit_X_start_on_count = 0;
-volatile uint8_t Limit_X_end_on_count = 0;
-volatile uint8_t Limit_Z_start_on_count = 0;
-volatile uint8_t Limit_Z_end_on_count = 0;
-
-/// Debounce release (OFF) counters
-
-volatile uint8_t panic_off_count = __UINT8_MAX__;
-volatile uint8_t Limit_Y1_start_off_count = __UINT8_MAX__;
-volatile uint8_t Limit_Y1_end_off_count = __UINT8_MAX__;
-volatile uint8_t Limit_Y2_start_off_count = __UINT8_MAX__;
-volatile uint8_t Limit_Y2_end_off_count = __UINT8_MAX__;
-volatile uint8_t Limit_X_start_off_count = __UINT8_MAX__;
-volatile uint8_t Limit_X_end_off_count = __UINT8_MAX__;
-volatile uint8_t Limit_Z_start_off_count = __UINT8_MAX__;
-volatile uint8_t Limit_Z_end_off_count = __UINT8_MAX__;
-
-/// Switch states
-volatile bool panic_switch = false;
-volatile bool Limit_Y1_start = false;
-volatile bool Limit_Y1_end = false;
-volatile bool Limit_Y2_start = false;
-volatile bool Limit_Y2_end = false;
-volatile bool Limit_X_start = false;
-volatile bool Limit_X_end = false;
-volatile bool Limit_Z_start = false;
-volatile bool Limit_Z_end = false;
-*/
-
-/// =====================  =====================
-
-/// Various booleans to check limits, homing, map height, etc
-
-volatile bool isHome = false;
-volatile bool isZero = false;
-volatile bool isMax = false;
 
 /// =====================  Stepper motor hardware, config and status  =====================
 
@@ -159,6 +97,7 @@ TMC262::SMARTEN coolStepConfig = {0};
 TMC262::DRVCTRL driverControl = {0};
 
 /// Status
+volatile StatusFunction statusFunction = StatusFunction::Idle;
 
 volatile uint8_t drawFunction = 0;
 volatile int32_t drawIndex = 0;
@@ -168,6 +107,14 @@ TMC262::STATUS status_M2 = {0};
 TMC262::STATUS status_M3 = {0};
 
 /// ===================== Motion Control =====================
+
+// extern volatile Stepper motors[4];
+
+volatile MoveInstruction move;
+
+volatile int64_t posX = 0;
+volatile int64_t posY = 0;
+volatile int64_t posZ = 0;
 
 /// Hardware interrupt (PIR) TIMER triggering MachineLoop Interrupt.
 RoboTimer IRQTimer;
@@ -234,7 +181,7 @@ void StartUp()
 
     delay(500);
 
-    requestedMode = Mode::Home;
+    requestedMode = Mode::None;
     lineStarted = false;
 
     /// Configure interrupt timer
@@ -251,6 +198,11 @@ FASTRUN void MachineLoop()
 
     switch (activeMode)
     {
+    case Mode::Stop:
+    {
+        requestedMode = Mode::None;
+        activeMode = Mode::None;
+    }
     case Mode::Draw:
     {
         /// Perform Motor Steps.
@@ -260,7 +212,7 @@ FASTRUN void MachineLoop()
         /// Reset step trigger and start next iteration.
         stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
 
-        /// Check for end of line and Pause at end of line.
+        /// Check for End of Line and Stop-Request at end of line.
         if (lineStarted)
         {
             if (posX == iBuffer[iBufferReadIndex].endX && posY == iBuffer[iBufferReadIndex].endY)
@@ -270,10 +222,10 @@ FASTRUN void MachineLoop()
                 drawFunction = 0;
                 lineStarted = false;
 
-                /// Is there a request to Pause drawing?
-                if (requestedMode == Mode::None)
+                /// Is there a request to Stop drawing?
+                if (requestedMode == Mode::Stop)
                 {
-                    activeMode = Mode::None;
+                    activeMode = Mode::Stop;
                     // Do not execute the rest of this case.
                     break;
                 }
@@ -328,49 +280,12 @@ FASTRUN void MachineLoop()
     }
     case Mode::Home:
     {
-        if (!isHome)
-        {
-            /// Perform Motor Steps.
-            /// As calculated in previous iteration and update positions.
-            StepMotors();
-
-            /// Reset step trigger and start next iteration.
-            stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
-
-            CalculateHomeSteps();
-            SetDirectionsAndLimits(); // Set PRE-STEP Direction &&& Check LIMITS
-
-            machineSpeed = homeSpeed;
-
-            if (sleeping)
-            {
-                /// Wake up
-                setCurrent(workCurrent);
-                sleeping = false;
-            }
-            sleepTimer = 0;
-        }
-        else
-        {
-            if (requestedMode == Mode::Home)
-                requestedMode = Mode::None;
-
-            activeMode = Mode::None;
-        }
+        Home();
         break;
     }
     case Mode::MapHeight:
     {
-
         MapHeight();
-
-        if (sleeping) /// Wake up
-        {
-            setCurrent(workCurrent);
-            sleeping = false;
-        }
-        sleepTimer = 0;
-
         break;
     }
 
@@ -396,16 +311,15 @@ FASTRUN void MachineLoop()
     {
         if (!sleeping)
         {
+            statusFunction = StatusFunction::Waiting;
+
             sleepTimer++;
             if (sleepTimer > 50000)
             {
                 sleeping = true;
                 setCurrent(sleepCurrent);
+                statusFunction = StatusFunction::Idle;
             }
-        }
-        else
-        {
-            sleepTimer = 0;
         }
 
         if (requestedMode == Mode::Draw)
@@ -431,18 +345,28 @@ FASTRUN void MachineLoop()
 
         if (requestedMode == Mode::Home)
         {
-            isHome = false;
-            isZero = false;
-            isMax = true;
-            stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
-            homeSpeed = 100.0f;
+            if (sleeping) /// Wake up
+            {
+                setCurrent(workCurrent);
+                sleeping = false;
+            }
+            sleepTimer = 0;
+
+            homeState = HomeState::Limit;
+            statusFunction = StatusFunction::Moving;
             activeMode = Mode::Home;
         }
 
         if (requestedMode == Mode::MapHeight)
         {
-            stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
-            mapHeightState = MapHeightState::None;
+            if (sleeping) /// Wake up
+            {
+                setCurrent(workCurrent);
+                sleeping = false;
+            }
+            sleepTimer = 0;
+
+            mapHeightState = MapHeightState::Choose;
             activeMode = Mode::MapHeight;
         }
 
@@ -491,131 +415,38 @@ FASTRUN void MachineLoop()
     }
 }
 
-FASTRUN void StepMotors()
+FASTRUN void Home()
 {
-    if (stepM1)
+    switch (homeState)
     {
-        digitalToggleFast(M1_stepPin);
-        M1_pos += M1_direction;
-    }
-    if (stepM2)
+    case (HomeState::None):
     {
-        digitalToggleFast(M2_stepPin);
-        M2_pos += M2_direction;
+        break;
     }
-    if (stepM3)
+    /// ================================================
+    case (HomeState::Limit):
     {
-        digitalToggleFast(M3_stepPin);
-        M3_pos += M3_direction;
-    }
-    if (stepM4)
-    {
-        digitalToggleFast(M4_stepPin);
-        M4_pos += M4_direction;
-    }
-    // if (stepM5) {
-    //     digitalToggleFast(M5_stepPin);
-    //     M5_pos += M5_direction;
-    // }
+        StepMotors();
 
-    /// Reset step triggers.
-    stepM1 = false;
-    stepM2 = false;
-    stepM3 = false;
-    stepM4 = false;
-    stepM5 = false;
-
-    /// Update local positions.
-    posX = M3_pos;
-    posY = M1_pos;
-    posZ = M4_pos;
-}
-
-FASTRUN void SetDirectionsAndLimits()
-{
-    if (M1_direction == 1)
-    {
-        digitalWriteFast(M1_dirPin, LOW); // Motor reverse mount
-        if (switches[swY1End].pressed)
-            stepM1 = false;
-        // if (Limit_Y1_end)
-        //     stepM1 = false;
-    }
-    if (M1_direction == -1)
-    {
-        digitalWriteFast(M1_dirPin, HIGH); // Motor reverse mount
-        if (switches[swY1Start].pressed)
-            stepM1 = false;
-        // if (Limit_Y1_start)
-        //     stepM1 = false;
-    }
-
-    if (M2_direction == 1)
-    {
-        digitalWriteFast(M2_dirPin, HIGH);
-        if (switches[swY2End].pressed)
-            stepM2 = false;
-        // if (Limit_Y2_end)
-        // stepM2 = false;
-    }
-    if (M2_direction == -1)
-    {
-        digitalWriteFast(M2_dirPin, LOW);
-        if (switches[swY2Start].pressed)
-            stepM2 = false;
-        // if (Limit_Y2_start)
-        //     stepM2 = false;
-    }
-
-    if (M3_direction == 1)
-    {
-        digitalWriteFast(M3_dirPin, HIGH);
-        if (switches[swXEnd].pressed)
-            stepM3 = false;
-        // if (Limit_X_end)
-        // stepM3 = false;
-    }
-    if (M3_direction == -1)
-    {
-        digitalWriteFast(M3_dirPin, LOW);
-        if (switches[swXStart].pressed)
-            stepM3 = false;
-        // if (Limit_X_start)
-        // stepM3 = false;
-    }
-
-    if (M4_direction == 1)
-    {
-        digitalWriteFast(M4_dirPin, LOW); // Motor reverse mount
-        if (switches[swZEnd].pressed)
-            stepM4 = false;
-        // if (Limit_Z_end)
-        // stepM4 = false;
-    }
-    if (M4_direction == -1)
-    {
-        digitalWriteFast(M4_dirPin, HIGH); // Motor reverse mount
-        if (switches[swZStart].pressed)
-            stepM4 = false;
-        // if (Limit_Z_start)
-        // stepM4 = false;
-    }
-
-    // digitalWriteFast(M5_dirPin, M5_direction);
-}
-
-FASTRUN void CalculateHomeSteps()
-{
-    if (!isZero)
-    {
-        if (switches[swY1Start].pressed && switches[swY2Start].pressed && switches[swXStart].pressed && switches[swZStart].pressed)
-        // if (Limit_Y1_start && Limit_Y2_start && Limit_X_start && Limit_Z_start)
+        /// Is there a request to Stop homeing?
+        if (requestedMode == Mode::Stop)
         {
-            isZero = true;
+            activeMode = Mode::Stop;
+            mapHeightState = MapHeightState::None;
+            // Do not execute the rest of this case.
+            break;
+        }
+
+        if ((switches[swY1Start].pressed || switches[swY2Start].pressed) && switches[swXStart].pressed && switches[swZStart].pressed)
+        {
+            /// All limit switches hit,
+            /// proceed to margin position
             M1_pos = 0;
             M2_pos = 0;
             M3_pos = 0;
             M4_pos = 0;
+            homeState = HomeState::Zero;
+            statusFunction = StatusFunction::Homing;
         }
         else
         {
@@ -628,105 +459,112 @@ FASTRUN void CalculateHomeSteps()
             M4_direction = -1;
             stepM4 = true;
         }
+
+        SetDirectionsAndLimits();
+        machineSpeed = homeSpeed;
+
+        break;
     }
-    else
+    /// ================================================
+    case (HomeState::Zero):
     {
-        if (!isMax)
+        StepMotors();
+
+        /// Is there a request to Stop homeing?
+        if (requestedMode == Mode::Stop)
         {
-            if (switches[swY1End].pressed && switches[swY2End].pressed && switches[swXEnd].pressed)
-            // if (Limit_Y1_end && Limit_Y2_end && Limit_X_end)
-            {
-                Serial.print("M1 max:");
-                Serial.println(M1_pos);
-                Serial.print("M2 max:");
-                Serial.println(M2_pos);
-                Serial.print("M3 max:");
-                Serial.println(M3_pos);
-                isMax = true;
-                homeSpeed = 40.0f;
-            }
-            else
-            {
-                M1_direction = 1;
-                stepM1 = true;
-                M2_direction = 1;
-                stepM2 = true;
-                M3_direction = 1;
-                stepM3 = true;
-            }
+            activeMode = Mode::Stop;
+            mapHeightState = MapHeightState::None;
+            // Do not execute the rest of this case.
+            break;
+        }
+
+        if (M1_pos == 13581 && M2_pos == 13581 && M3_pos == 13581 && M4_pos == 13581)
+        {
+            /// Margin reached at 1 cm on axis,
+            /// reset coordinates.
+            M1_pos = 0;
+            M2_pos = 0;
+            M3_pos = 0;
+            M4_pos = 0;
+            homeState = HomeState::Done;
+            statusFunction = StatusFunction::Waiting;
         }
         else
         {
-            if (M1_pos == 13581 && M2_pos == 13581 && M3_pos == 13581 && M4_pos == 13581)
+            if (M1_pos > 13581)
             {
-                M1_pos = 0;
-                M2_pos = 0;
-                M3_pos = 0;
-                M4_pos = 0;
-                isHome = true;
+                M1_direction = -1;
+                stepM1 = true;
             }
-            else
+            if (M1_pos < 13581)
             {
-                if (M1_pos > 13581)
-                {
-                    M1_direction = -1;
-                    stepM1 = true;
-                }
-                if (M1_pos < 13581)
-                {
-                    M1_direction = 1;
-                    stepM1 = true;
-                }
+                M1_direction = 1;
+                stepM1 = true;
+            }
 
-                if (M2_pos > 13581)
-                {
-                    M2_direction = -1;
-                    stepM2 = true;
-                }
-                if (M2_pos < 13581)
-                {
-                    M2_direction = 1;
-                    stepM2 = true;
-                }
+            if (M2_pos > 13581)
+            {
+                M2_direction = -1;
+                stepM2 = true;
+            }
+            if (M2_pos < 13581)
+            {
+                M2_direction = 1;
+                stepM2 = true;
+            }
 
-                if (M3_pos > 13581)
-                {
-                    M3_direction = -1;
-                    stepM3 = true;
-                }
-                if (M3_pos < 13581)
-                {
-                    M3_direction = 1;
-                    stepM3 = true;
-                }
+            if (M3_pos > 13581)
+            {
+                M3_direction = -1;
+                stepM3 = true;
+            }
+            if (M3_pos < 13581)
+            {
+                M3_direction = 1;
+                stepM3 = true;
+            }
 
-                if (M4_pos > 13581)
-                {
-                    M4_direction = -1;
-                    stepM4 = true;
-                }
+            if (M4_pos > 13581)
+            {
+                M4_direction = -1;
+                stepM4 = true;
+            }
 
-                if (M4_pos < 13581)
-                {
-                    M4_direction = 1;
-                    stepM4 = true;
-                }
+            if (M4_pos < 13581)
+            {
+                M4_direction = 1;
+                stepM4 = true;
             }
         }
+
+        SetDirectionsAndLimits();
+        machineSpeed = homeSpeed;
+
+        break;
+    }
+    /// ================================================
+    case (HomeState::Done):
+    {
+        requestedMode = Mode::None;
+        activeMode = Mode::None;
+        homeState = HomeState::None;
+        break;
+    }
     }
 }
 
 FASTRUN void MapHeight()
 {
-    /// Update current positions from motors
-    // posY = M1_pos;
-    // posX = M3_pos;
-    // posZ = M4_pos;
 
     switch (mapHeightState)
     {
-    /// ================================================
     case (MapHeightState::None):
+    {
+        break;
+    }
+    /// ================================================
+    case (MapHeightState::Choose):
     {
         HeightMapSetIndex = -1;
 
@@ -746,6 +584,7 @@ FASTRUN void MapHeight()
             {
                 /// Move up first, then return here.
                 mapHeightState = MapHeightState::MoveUp;
+                statusFunction = StatusFunction::Moving;
             }
             else
             {
@@ -760,11 +599,20 @@ FASTRUN void MapHeight()
             {
                 /// Move up first, then return here.
                 mapHeightState = MapHeightState::MoveUp;
+                statusFunction = StatusFunction::Moving;
             }
             else
             {
-                /// Ready to move to the correct position
+                /// Is there a request to Stop mapping?
+                if (requestedMode == Mode::Stop)
+                {
+                    activeMode = Mode::Stop;
+                    mapHeightState = MapHeightState::None;
+                    // Do not execute the rest of this case.
+                    break;
+                }
 
+                /// Ready to move to the correct position
                 move.endX = (XMAX / 3) * (HeightMapSetIndex % 4);
                 move.endY = (YMAX / 5) * (HeightMapSetIndex / 4);
 
@@ -772,6 +620,7 @@ FASTRUN void MapHeight()
                 {
                     /// Mapping position already reached, proceed to map height.
                     mapHeightState = MapHeightState::MoveDown;
+                    statusFunction = StatusFunction::Mapping;
                 }
                 else
                 {
@@ -780,33 +629,22 @@ FASTRUN void MapHeight()
                     Serial.print(" , ");
                     Serial.println(move.endY);
                     mapHeightState = MapHeightState::StartMoveXY;
+                    statusFunction = StatusFunction::Moving;
                 }
             }
         }
         break;
     }
-    case (MapHeightState::Choose):
-    {
-        break;
-    }
+
     /// ================================================
     case (MapHeightState::MoveUp):
     {
         StepMotors();
-        /// Always reset step triggers and then start next iteration.
-        stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
-
-        /// Update current positions from motors
-        posY = M1_pos;
-        posX = M3_pos;
-        posZ = M4_pos;
 
         if (posZ == 0)
         {
-            /// Switch back to state: None
-            mapHeightState = MapHeightState::None;
-
-            machineSpeed = normalSpeed;
+            /// Switch back to state: Choose
+            mapHeightState = MapHeightState::Choose;
         }
         else
         {
@@ -815,9 +653,8 @@ FASTRUN void MapHeight()
 
             if (posZ < 0)
                 StepZ(1);
-
-            machineSpeed = normalSpeed;
         }
+        machineSpeed = normalSpeed;
 
         SetDirectionsAndLimits();
         break;
@@ -849,17 +686,10 @@ FASTRUN void MapHeight()
     case (MapHeightState::MoveXY):
     {
         StepMotors();
-        // /// Always reset step triggers and then start next iteration.
-        // stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
-
-        // /// Update current positions from motors
-        // posY = M1_pos;
-        // posX = M3_pos;
-        // posZ = M4_pos;
 
         if (posX == move.endX && posY == move.endY)
         {
-            mapHeightState = MapHeightState::None;
+            mapHeightState = MapHeightState::Choose;
             machineSpeed = normalSpeed;
         }
         else
@@ -909,8 +739,10 @@ FASTRUN void MapHeight()
         Serial.println(HeightMapSetIndex);
 
         /// Check if we need to map another position in the map.
-        /// Switch to state: None
-        mapHeightState = MapHeightState::None;
+        /// Switch to state: Choose
+        mapHeightState = MapHeightState::Choose;
+        machineSpeed = normalSpeed;
+
         break;
     }
 
@@ -920,6 +752,7 @@ FASTRUN void MapHeight()
         Serial.println("Done with heightmap!");
         requestedMode = Mode::None;
         activeMode = Mode::None;
+        mapHeightState = MapHeightState::None;
         break;
     }
     }
@@ -1053,6 +886,101 @@ FASTRUN void CalculateDrawSteps()
         {
             CalculateQuadBezier();
         }
+    }
+}
+
+FASTRUN void StepMotors()
+{
+    if (stepM1)
+    {
+        digitalToggleFast(M1_stepPin);
+        M1_pos += M1_direction;
+    }
+    if (stepM2)
+    {
+        digitalToggleFast(M2_stepPin);
+        M2_pos += M2_direction;
+    }
+    if (stepM3)
+    {
+        digitalToggleFast(M3_stepPin);
+        M3_pos += M3_direction;
+    }
+    if (stepM4)
+    {
+        digitalToggleFast(M4_stepPin);
+        M4_pos += M4_direction;
+    }
+
+    /// Reset step triggers.
+    stepM1 = false;
+    stepM2 = false;
+    stepM3 = false;
+    stepM4 = false;
+    stepM5 = false;
+
+    /// Update local positions.
+    posX = M3_pos;
+    posY = M1_pos;
+    posZ = M4_pos;
+}
+
+FASTRUN void SetDirectionsAndLimits()
+{
+    /// Switches for Y1 and Y2 are linked.
+    /// If a switch or switch wire fails,
+    /// left and right motors will both moving in that direction.
+
+    if (M1_direction == 1)
+    {
+        digitalWriteFast(M1_dirPin, LOW); // Motor reverse mount
+        if (switches[swY1End].pressed || switches[swY2End].pressed)
+            stepM1 = false;
+    }
+    if (M1_direction == -1)
+    {
+        digitalWriteFast(M1_dirPin, HIGH); // Motor reverse mount
+        if (switches[swY1Start].pressed || switches[swY2Start].pressed)
+            stepM1 = false;
+    }
+
+    if (M2_direction == 1)
+    {
+        digitalWriteFast(M2_dirPin, HIGH);
+        if (switches[swY1End].pressed || switches[swY2End].pressed)
+            stepM2 = false;
+    }
+    if (M2_direction == -1)
+    {
+        digitalWriteFast(M2_dirPin, LOW);
+        if (switches[swY1Start].pressed || switches[swY2Start].pressed)
+            stepM2 = false;
+    }
+
+    if (M3_direction == 1)
+    {
+        digitalWriteFast(M3_dirPin, HIGH);
+        if (switches[swXEnd].pressed)
+            stepM3 = false;
+    }
+    if (M3_direction == -1)
+    {
+        digitalWriteFast(M3_dirPin, LOW);
+        if (switches[swXStart].pressed)
+            stepM3 = false;
+    }
+
+    if (M4_direction == 1)
+    {
+        digitalWriteFast(M4_dirPin, LOW); // Motor reverse mount
+        if (switches[swZEnd].pressed)
+            stepM4 = false;
+    }
+    if (M4_direction == -1)
+    {
+        digitalWriteFast(M4_dirPin, HIGH); // Motor reverse mount
+        if (switches[swZStart].pressed)
+            stepM4 = false;
     }
 }
 
@@ -1203,7 +1131,7 @@ FASTRUN void DebounceSwitches()
     /// Check for panic.
     if (switches[swPanic].pressed)
     {
-        // PANIC Button! STOPPING ALL MOTORS Right now
+        // PANIC Button! Halting ALL MOTORS Right now
         digitalWriteFast(M1_M2_M3_ennPin, 1);
         digitalWriteFast(M4_M5_enPin, 1);
     }
@@ -1225,157 +1153,6 @@ FASTRUN void DebounceSwitches()
             }
         }
     }
-    /*
-    Limit_Y1_start_on_count += digitalReadFast(Limit_Y1_start_pin);
-    Limit_Y1_end_on_count += digitalReadFast(Limit_Y1_end_pin);
-    Limit_Y2_start_on_count += digitalReadFast(Limit_Y2_start_pin);
-    Limit_Y2_end_on_count += digitalReadFast(Limit_Y2_end_pin);
-    Limit_X_start_on_count += digitalReadFast(Limit_X_start_pin);
-    Limit_X_end_on_count += digitalReadFast(Limit_X_end_pin);
-    Limit_Z_start_on_count += digitalReadFast(Limit_Z_start_pin);
-    Limit_Z_end_on_count += digitalReadFast(Limit_Z_end_pin);
-    panic_on_count += digitalReadFast(panic_pin);
-
-    if (Limit_Y1_start_on_count > 7 && Limit_Y1_start == false)
-    {
-        Limit_Y1_start_off_count = __UINT8_MAX__;
-        Limit_Y1_start = true;
-    }
-
-    if (Limit_Y1_end_on_count > 7 && Limit_Y1_end == false)
-    {
-        Limit_Y1_end_off_count = __UINT8_MAX__;
-        Limit_Y1_end = true;
-    }
-
-    if (Limit_Y2_start_on_count > 7 && Limit_Y2_start == false)
-    {
-        Limit_Y2_start_off_count = __UINT8_MAX__;
-        Limit_Y2_start = true;
-    }
-
-    if (Limit_Y2_end_on_count > 7 && Limit_Y2_end == false)
-    {
-        Limit_Y2_end_off_count = __UINT8_MAX__;
-        Limit_Y2_end = true;
-    }
-
-    if (Limit_X_start_on_count > 7 && Limit_X_start == false)
-    {
-        Limit_X_start_off_count = __UINT8_MAX__;
-        Limit_X_start = true;
-    }
-
-    if (Limit_X_end_on_count > 7 && Limit_X_end == false)
-    {
-        Limit_X_end_off_count = __UINT8_MAX__;
-        Limit_X_end = true;
-    }
-
-    if (Limit_Z_start_on_count > 7 && Limit_Z_start == false)
-    {
-        Limit_Z_start_off_count = __UINT8_MAX__;
-        Limit_Z_start = true;
-    }
-
-    if (Limit_Z_end_on_count > 7 && Limit_Z_end == false)
-    {
-        Limit_Z_end_off_count = __UINT8_MAX__;
-        Limit_Z_end = true;
-    }
-
-    if (panic_on_count > 7 && panic_switch == false)
-    {
-        panic_off_count = __UINT8_MAX__;
-        panic_switch = true;
-        // PANIC Button! STOPPING ALL MOTORS Right now
-        digitalWriteFast(M1_M2_M3_ennPin, 1);
-        digitalWriteFast(M4_M5_enPin, 1);
-    }
-    */
-    /*
-    //======== SLOW RELEASE DEBOUNCE ==========//
-    if (debounceCounter > 300000)
-    { // every 2 ms ?
-        debounceCounter = 0;
-        Limit_Y1_start_off_count <<= 1;
-        Limit_Y1_start_off_count |= digitalReadFast(Limit_Y1_start_pin);
-        Limit_Y1_end_off_count <<= 1;
-        Limit_Y1_end_off_count |= digitalReadFast(Limit_Y1_end_pin);
-
-        Limit_Y2_start_off_count <<= 1;
-        Limit_Y2_start_off_count |= digitalReadFast(Limit_Y2_start_pin);
-        Limit_Y2_end_off_count <<= 1;
-        Limit_Y2_end_off_count |= digitalReadFast(Limit_Y2_end_pin);
-
-        Limit_X_start_off_count <<= 1;
-        Limit_X_start_off_count |= digitalReadFast(Limit_X_start_pin);
-        Limit_X_end_off_count <<= 1;
-        Limit_X_end_off_count |= digitalReadFast(Limit_X_end_pin);
-
-        Limit_Z_start_off_count <<= 1;
-        Limit_Z_start_off_count |= digitalReadFast(Limit_Z_start_pin);
-        Limit_Z_end_off_count <<= 1;
-        Limit_Z_end_off_count |= digitalReadFast(Limit_Z_end_pin);
-
-        panic_off_count <<= 1;
-        panic_off_count |= digitalReadFast(panic_pin);
-
-        if (Limit_Y1_start_off_count == 0)
-        {
-            Limit_Y1_start = false;
-            Limit_Y1_start_on_count = 0;
-        }
-
-        if (Limit_Y1_end_off_count == 0)
-        {
-            Limit_Y1_end = false;
-            Limit_Y1_end_on_count = 0;
-        }
-
-        if (Limit_Y2_start_off_count == 0)
-        {
-            Limit_Y2_start = false;
-            Limit_Y2_start_on_count = 0;
-        }
-
-        if (Limit_Y2_end_off_count == 0)
-        {
-            Limit_Y2_end = false;
-            Limit_Y2_end_on_count = 0;
-        }
-
-        if (Limit_X_start_off_count == 0)
-        {
-            Limit_X_start = false;
-            Limit_X_start_on_count = 0;
-        }
-
-        if (Limit_X_end_off_count == 0)
-        {
-            Limit_X_end = false;
-            Limit_X_end_on_count = 0;
-        }
-
-        if (Limit_Z_start_off_count == 0)
-        {
-            Limit_Z_start = false;
-            Limit_Z_start_on_count = 0;
-        }
-
-        if (Limit_Z_end_off_count == 0)
-        {
-            Limit_Z_end = false;
-            Limit_Z_end_on_count = 0;
-        }
-
-        if (panic_off_count == 0)
-        {
-            panic_switch = false;
-            panic_on_count = 0;
-        }
-    }
-    */
 }
 
 void updateStepperStatus()
@@ -1456,18 +1233,6 @@ void configureSwitches()
         switches[s].offBounce = __UINT8_MAX__;
         switches[s].pressed = false;
     }
-    /*
-    pinMode(Limit_Y1_start_pin, INPUT_PULLUP);
-    pinMode(Limit_Y1_end_pin, INPUT_PULLUP);
-    pinMode(Limit_Y2_start_pin, INPUT_PULLUP);
-    pinMode(Limit_Y2_end_pin, INPUT_PULLUP);
-    pinMode(Limit_X_start_pin, INPUT_PULLUP);
-    pinMode(Limit_X_end_pin, INPUT_PULLUP);
-    pinMode(Limit_Z_start_pin, INPUT_PULLUP);
-    pinMode(Limit_Z_end_pin, INPUT_PULLUP);
-
-    pinMode(panic_pin, INPUT_PULLUP);
-    */
 }
 
 void configureStepperDrivers()
