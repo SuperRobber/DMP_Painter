@@ -1,7 +1,7 @@
-/// TODO: 
+/// TODO:
 ///
 /// 1. Better SLEEP FUNCTION
-/// SetCurrent() calls setTMC262Register from inside interrupt. 
+/// SetCurrent() calls setTMC262Register from inside interrupt.
 /// (requestAwake ? is Awake ? some shared flags ?)
 ///
 /// 2. Add status from M4 and M5
@@ -21,14 +21,14 @@
 #define XMAX 1100000 // total X steps +- 1127620 | margin (13581)
 #define YMAX 1568000 // total Y steps +- 1595169 | margin (13581)
 
-/// @brief Union to convert int64 to bytearray.
+/// @brief Union to convconsole.log('ert int64 to byteArray.
 union byte64
 {
     int64_t value;
     byte bytes[8];
 };
 
-/// @brief Union to convert int32 to bytearray.
+/// @brief Union to convert int32 to byteArray.
 union byte32
 {
     int32_t value;
@@ -54,37 +54,24 @@ struct DrawInstruction
     int64_t steps;
 };
 
-struct moveInstruction
+struct MoveInstruction
 {
     int8_t dirX;
-    int8_t dirY;    
+    int8_t dirY;
     int64_t endX;
     int64_t endY;
     int64_t deltaX;
-    int64_t deltaY;   
+    int64_t deltaY;
     int64_t error;
     double steps;
-    double step; 
+    double step;
 };
+
 
 // ===================== Machines task switching & State Machines =====================
-/*
-enum State
-{
-    state_none = 0,
-    state_start = 1,
-    state_home = 2,
-    state_draw = 3,
-    state_idle = 4,
-    state_panic = 5,
-    state_eof = 6,
-    state_reset = 7,
-    state_mapheight = 10,
-    state_clearheight = 11,
-};
-*/
 
-enum class Mode {
+enum class Mode
+{
     None,
     Start,
     Home,
@@ -99,22 +86,24 @@ enum class Mode {
 };
 
 /// @brief State Machine used for drawing lines.
-enum class DrawState {
+enum class DrawState
+{
     LineStart,
     Move,
     Wait,
     Done
 };
 
-/// @brief State Machine used for homeing.
-enum class HomeState {
+/// @brief State Machine used for homing.
+enum class HomeState
+{
     Zero,
     Home,
     Done
 };
 
-/// @brief State Machine used for building a heigtMap.
-enum class MapHeightState 
+/// @brief State Machine used for building a heightMap.
+enum class MapHeightState
 {
     None,
     Choose,
@@ -147,7 +136,6 @@ extern volatile int64_t requestedInstruction;
 /// @brief Index for last received Instruction
 extern volatile int64_t receivedInstruction;
 
-
 // ===================== Height Mapping algorithm. =====================
 
 #define HeightMapWidth 4
@@ -156,8 +144,44 @@ extern volatile int64_t receivedInstruction;
 
 extern volatile int64_t HeightMap[];
 
-/// ===================== Limit switch states (pressed is true) =====================
+/// ===================== Limit switch states =====================
 
+/// Switch hardware pins
+
+#define pinPanic   23
+#define pinY1Start 36
+#define pinY1End   35
+#define pinY2Start 38
+#define pinY2End   37
+#define pinXStart  40
+#define pinXEnd    39
+#define pinZStart  41
+#define pinZEnd    14
+
+/// Switch array Index names
+
+#define swPanic   0
+#define swY1Start 1
+#define swY1End   2
+#define swY2Start 3
+#define swY2End   4
+#define swXStart  5
+#define swXEnd    6
+#define swZStart  7
+#define swZEnd    8
+
+const int numSwitches = 9;
+
+struct LimitSwitch {
+    uint8_t hwPin;
+    uint8_t onBounce;
+    uint8_t offBounce;
+    bool pressed;
+};
+
+extern volatile LimitSwitch switches[numSwitches];
+
+/*
 extern volatile bool Limit_Y1_start;
 extern volatile bool Limit_Y1_end;
 extern volatile bool Limit_Y2_start;
@@ -166,6 +190,7 @@ extern volatile bool Limit_X_start;
 extern volatile bool Limit_X_end;
 extern volatile bool Limit_Z_start;
 extern volatile bool Limit_Z_end;
+*/
 
 /// =====================  Stepper motor hardware, config and status  =====================
 
@@ -198,14 +223,13 @@ extern volatile int32_t M3_pos;
 extern volatile int32_t M4_pos;
 extern volatile int32_t M5_pos;
 
-/// ===================== FUNCTIONS that are part of the intterrupt loop (FASTRUN) =====================
+/// ===================== FUNCTIONS that are part of the interrupt loop (FASTRUN) =====================
 
 /// @brief The main motion control loop. Called via interrupt timer. To move as
 /// continuous as possible, prepared motor stepping is performed at beginning of each
 /// loop. After that actions for the do next iteration are calculated, which can take
-/// variable amount of time. Following this pattern, movement is controled at a fixed
+/// variable amount of time. Following this pattern, movement is controlled at a fixed
 /// interval as close to the interrupt call as possible.
-/// @return
 FASTRUN void MachineLoop();
 
 /// @brief The homing algorithm
@@ -218,8 +242,8 @@ FASTRUN void CalculateDrawSteps();
 /// @brief The height mapping algorithm.
 FASTRUN void MapHeight();
 
-/// @brief Perform Motor Steps that are calculated in previous iteration
-/// and updates position variables.
+/// @brief Perform motor steps that are calculated in previous iteration,
+/// reset step triggers and updates position variables.
 /// @return
 FASTRUN void StepMotors();
 
@@ -257,7 +281,7 @@ FASTRUN void CalculateStraightLine();
 /// @brief Draw / Step along a Quadratic Bezier
 FASTRUN void CalculateQuadBezier();
 
-/// ===================== FUNCTIONS not part of the intterrupt loop =====================
+/// ===================== FUNCTIONS not part of the interrupt loop =====================
 
 /// @brief Startup procedure, sets up interrupt timer and
 /// enables stepper motors.
@@ -275,15 +299,15 @@ void updateStepperStatus();
 
 /// @brief Function to set TMC262 Stepper Driver register
 /// @param bytes Register data (24bits)
-/// @param CSPIN SPI pin the driver is attached to
+/// @param CSPin SPI pin the driver is attached to
 /// @return A status union with various driver flags and driver information
-TMC262::STATUS setTMC262Register(uint8_t bytes[3], int CSPIN);
+TMC262::STATUS setTMC262Register(uint8_t bytes[3], int CSPin);
 
 /// @brief Function to set TMC263 Stepper Driver register
 /// @param address Register address (8bits)
 /// @param data Register data (32bits)
-/// @param CSPIN SPI pin the driver is attached to
+/// @param CSPin SPI pin the driver is attached to
 /// @return A status union with various driver flags and driver information
-TMC2130::SPI_STATUS setTMC2130Register(uint8_t address, uint32_t data, int CSPIN);
+TMC2130::SPI_STATUS setTMC2130Register(uint8_t address, uint32_t data, int CSPin);
 
 #endif

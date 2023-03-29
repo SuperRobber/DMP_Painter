@@ -4,9 +4,6 @@
 
 // ===================== Machines task switching & State Machines =====================
 
-// volatile State activeMode = Mode::None;
-// volatile State requestedMode = Mode::None;
-
 volatile Mode activeMode = Mode::None;
 volatile Mode requestedMode = Mode::None;
 
@@ -25,7 +22,6 @@ volatile int64_t receivedInstruction = -1;
 volatile int64_t HeightMap[HeightMapSize];
 volatile int HeightMapSetIndex = 0;
 
-
 /// ===================== Drawing variables as part of movement algorithms. =====================
 
 volatile bool moving = true;
@@ -35,17 +31,17 @@ volatile int64_t drawDeltaX = 0;
 volatile int64_t drawDeltaY = 0;
 volatile int64_t drawError = 0;
 
-volatile moveInstruction move;
+volatile MoveInstruction move;
 
-volatile int64_t moveEndX = 0;
-volatile int64_t moveEndY = 0;
-volatile uint8_t moveDirX;
-volatile uint8_t moveDirY;
-volatile int64_t moveDeltaX = 0;
-volatile int64_t moveDeltaY = 0;
-volatile int64_t moveError = 0;
-volatile double moveSteps = 0;
-volatile double moveStep = 0;
+// volatile int64_t move.endX = 0;
+// volatile int64_t move.endY = 0;
+// volatile uint8_t move.dirX;
+// volatile uint8_t move.dirY;
+// volatile int64_t move.deltaX = 0;
+// volatile int64_t move.deltaY = 0;
+// volatile int64_t move.error = 0;
+// volatile double moveSteps = 0;
+// volatile double moveStep = 0;
 
 volatile int64_t posX = 0;
 volatile int64_t posY = 0;
@@ -63,8 +59,9 @@ volatile bool sleeping = false;
 /// Debounce cycle counter
 volatile uint32_t debounceCounter = 0;
 
-/// hardware pins
+extern volatile LimitSwitch switches[numSwitches];
 
+/*
 const int panic_pin = 23;
 const int Limit_Y1_start_pin = 36;
 const int Limit_Y1_end_pin = 35;
@@ -75,7 +72,7 @@ const int Limit_X_end_pin = 39;
 const int Limit_Z_start_pin = 41;
 const int Limit_Z_end_pin = 14;
 
-/// Debounce press (ON) counters 
+/// Debounce press (ON) counters
 
 volatile uint8_t panic_on_count = 0;
 volatile uint8_t Limit_Y1_start_on_count = 0;
@@ -87,7 +84,7 @@ volatile uint8_t Limit_X_end_on_count = 0;
 volatile uint8_t Limit_Z_start_on_count = 0;
 volatile uint8_t Limit_Z_end_on_count = 0;
 
-/// Debounce release (OFF) counters 
+/// Debounce release (OFF) counters
 
 volatile uint8_t panic_off_count = __UINT8_MAX__;
 volatile uint8_t Limit_Y1_start_off_count = __UINT8_MAX__;
@@ -109,10 +106,11 @@ volatile bool Limit_X_start = false;
 volatile bool Limit_X_end = false;
 volatile bool Limit_Z_start = false;
 volatile bool Limit_Z_end = false;
+*/
 
 /// =====================  =====================
 
-/// Various bools to check limits, homing, mapheight, etc
+/// Various booleans to check limits, homing, map height, etc
 
 volatile bool isHome = false;
 volatile bool isZero = false;
@@ -377,7 +375,7 @@ FASTRUN void MachineLoop()
 
     case Mode::ClearHeight:
     {
-        /// clear Heightmap and EEPROM
+        /// clear HeightMap and EEPROM
         for (int i = 0; i < HeightMapSize; i++)
         {
             byte64 b64 = {};
@@ -461,10 +459,10 @@ FASTRUN void MachineLoop()
     }
     }
 
-    /// Debounce Switches and set button press or release triggers
+    /// Debounce Switches and set button press or release triggers.
     DebounceSwitches();
 
-    /// Set STEP SPEED (Intertupt time) for next Iteration.
+    /// Set STEP SPEED (Interrupt time) for next Iteration.
     /// In case of a diagonal steps the loop should take SQRT(2) times
     /// longer to maintain constant speed.
 
@@ -481,7 +479,7 @@ FASTRUN void MachineLoop()
 
     IRQTimer.unsafe_update(cycles);
 
-    /// Update the debounce timetracker
+    /// Update the debounce time tracker.
     debounceCounter += cycles;
 
     /// Update variables for time tracking interrupt performance.
@@ -519,17 +517,17 @@ FASTRUN void StepMotors()
     //     M5_pos += M5_direction;
     // }
 
-    /// Always reset step triggers
+    /// Reset step triggers.
     stepM1 = false;
     stepM2 = false;
     stepM3 = false;
     stepM4 = false;
     stepM5 = false;
-    
-    posX=M3_pos;
-    posY=M1_pos;
-    posZ=M4_pos;
-    
+
+    /// Update local positions.
+    posX = M3_pos;
+    posY = M1_pos;
+    posZ = M4_pos;
 }
 
 FASTRUN void SetDirectionsAndLimits()
@@ -537,53 +535,69 @@ FASTRUN void SetDirectionsAndLimits()
     if (M1_direction == 1)
     {
         digitalWriteFast(M1_dirPin, LOW); // Motor reverse mount
-        if (Limit_Y1_end)
+        if (switches[swY1End].pressed)
             stepM1 = false;
+        // if (Limit_Y1_end)
+        //     stepM1 = false;
     }
     if (M1_direction == -1)
     {
         digitalWriteFast(M1_dirPin, HIGH); // Motor reverse mount
-        if (Limit_Y1_start)
+        if (switches[swY1Start].pressed)
             stepM1 = false;
+        // if (Limit_Y1_start)
+        //     stepM1 = false;
     }
 
     if (M2_direction == 1)
     {
         digitalWriteFast(M2_dirPin, HIGH);
-        if (Limit_Y2_end)
+        if (switches[swY2End].pressed)
             stepM2 = false;
+        // if (Limit_Y2_end)
+            // stepM2 = false;
     }
     if (M2_direction == -1)
     {
         digitalWriteFast(M2_dirPin, LOW);
-        if (Limit_Y2_start)
+        if (switches[swY2Start].pressed)
             stepM2 = false;
+        // if (Limit_Y2_start)
+        //     stepM2 = false;
     }
 
     if (M3_direction == 1)
     {
         digitalWriteFast(M3_dirPin, HIGH);
-        if (Limit_X_end)
+        if (switches[swXEnd].pressed)
             stepM3 = false;
+        // if (Limit_X_end)
+            // stepM3 = false;
     }
     if (M3_direction == -1)
     {
         digitalWriteFast(M3_dirPin, LOW);
-        if (Limit_X_start)
-            stepM3 = false;
+        if (switches[swXStart].pressed)
+            stepM3 = false;        
+        // if (Limit_X_start)
+            // stepM3 = false;
     }
 
     if (M4_direction == 1)
     {
         digitalWriteFast(M4_dirPin, LOW); // Motor reverse mount
-        if (Limit_Z_end)
-            stepM4 = false;
+        if (switches[swZEnd].pressed)
+            stepM4 = false;        
+        // if (Limit_Z_end)
+            // stepM4 = false;
     }
     if (M4_direction == -1)
     {
         digitalWriteFast(M4_dirPin, HIGH); // Motor reverse mount
-        if (Limit_Z_start)
+        if (switches[swZStart].pressed)
             stepM4 = false;
+        // if (Limit_Z_start)
+            // stepM4 = false;
     }
 
     // digitalWriteFast(M5_dirPin, M5_direction);
@@ -593,7 +607,8 @@ FASTRUN void CalculateHomeSteps()
 {
     if (!isZero)
     {
-        if (Limit_Y1_start && Limit_Y2_start && Limit_X_start && Limit_Z_start)
+        if (switches[swY1Start].pressed && switches[swY2Start].pressed && switches[swXStart].pressed && switches[swZStart].pressed)
+        // if (Limit_Y1_start && Limit_Y2_start && Limit_X_start && Limit_Z_start)
         {
             isZero = true;
             M1_pos = 0;
@@ -617,7 +632,8 @@ FASTRUN void CalculateHomeSteps()
     {
         if (!isMax)
         {
-            if (Limit_Y1_end && Limit_Y2_end && Limit_X_end)
+            if (switches[swY1End].pressed && switches[swY2End].pressed && switches[swXEnd].pressed)
+            // if (Limit_Y1_end && Limit_Y2_end && Limit_X_end)
             {
                 Serial.print("M1 max:");
                 Serial.println(M1_pos);
@@ -702,9 +718,9 @@ FASTRUN void CalculateHomeSteps()
 FASTRUN void MapHeight()
 {
     /// Update current positions from motors
-    posY = M1_pos;
-    posX = M3_pos;
-    posZ = M4_pos;
+    // posY = M1_pos;
+    // posX = M3_pos;
+    // posZ = M4_pos;
 
     switch (mapHeightState)
     {
@@ -713,7 +729,7 @@ FASTRUN void MapHeight()
     {
         HeightMapSetIndex = -1;
 
-        /// Get index of the First HeightMap postition that is not set.
+        /// Get index of the First HeightMap position that is not set.
         for (int i = (HeightMapSize - 1); i >= 0; i--)
         {
             if (HeightMap[i] == INT64_MIN)
@@ -727,12 +743,12 @@ FASTRUN void MapHeight()
             /// HeightMap is set completely.
             if (posZ != 0)
             {
-                /// Move up first, then return here
+                /// Move up first, then return here.
                 mapHeightState = MapHeightState::MoveUp;
             }
             else
             {
-                /// Heightmap complete and safely moved up.
+                /// HeightMap complete and safely moved up.
                 mapHeightState = MapHeightState::Done;
             }
         }
@@ -748,10 +764,10 @@ FASTRUN void MapHeight()
             {
                 /// Ready to move to the correct position
 
-                moveEndX = (XMAX / 3) * (HeightMapSetIndex % 4);
-                moveEndY = (YMAX / 5) * (HeightMapSetIndex / 4);
+                move.endX = (XMAX / 3) * (HeightMapSetIndex % 4);
+                move.endY = (YMAX / 5) * (HeightMapSetIndex / 4);
 
-                if (posX == moveEndX && posY == moveEndY)
+                if (posX == move.endX && posY == move.endY)
                 {
                     /// Mapping position already reached, proceed to map height.
                     mapHeightState = MapHeightState::MoveDown;
@@ -759,9 +775,9 @@ FASTRUN void MapHeight()
                 else
                 {
                     Serial.print("moving to:");
-                    Serial.print(moveEndX);
+                    Serial.print(move.endX);
                     Serial.print(" , ");
-                    Serial.println(moveEndY);
+                    Serial.println(move.endY);
                     mapHeightState = MapHeightState::StartMoveXY;
                 }
             }
@@ -805,21 +821,21 @@ FASTRUN void MapHeight()
     /// ================================================
     case (MapHeightState::StartMoveXY):
     {
-        /// start new movement
-        moveDeltaX = abs(moveEndX - posX);
-        moveDeltaY = -abs(moveEndY - posY);
-        moveDirX = (posX < moveEndX ? 1 : -1);
-        moveDirY = (posY < moveEndY ? 1 : -1);
-        moveError = moveDeltaX + moveDeltaY;
-        if (moveDeltaX > -moveDeltaY)
+        /// Set up a new movement
+        move.deltaX = abs(move.endX - posX);
+        move.deltaY = -abs(move.endY - posY);
+        move.dirX = (posX < move.endX ? 1 : -1);
+        move.dirY = (posY < move.endY ? 1 : -1);
+        move.error = move.deltaX + move.deltaY;
+        if (move.deltaX > -move.deltaY)
         {
-            moveSteps = (double)moveDeltaX * 0.5;
+            move.steps = (double)move.deltaX * 0.5;
         }
         else
         {
-            moveSteps = (double)moveDeltaY * -0.5;
+            move.steps = (double)move.deltaY * -0.5;
         }
-        moveStep = 0;
+        move.step = 0;
         mapHeightState = MapHeightState::MoveXY;
         break;
     }
@@ -828,52 +844,51 @@ FASTRUN void MapHeight()
     case (MapHeightState::MoveXY):
     {
         StepMotors();
-        /// Always reset step triggers and then start next iteration.
-        stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
+        // /// Always reset step triggers and then start next iteration.
+        // stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
 
-        /// Update current positions from motors
-        posY = M1_pos;
-        posX = M3_pos;
-        posZ = M4_pos;
+        // /// Update current positions from motors
+        // posY = M1_pos;
+        // posX = M3_pos;
+        // posZ = M4_pos;
 
-        if (posX == moveEndX && posY == moveEndY)
+        if (posX == move.endX && posY == move.endY)
         {
             mapHeightState = MapHeightState::None;
             machineSpeed = normalSpeed;
         }
         else
         {
-            if (posX != moveEndX && posY != moveEndY)
+            if (posX != move.endX && posY != move.endY)
             {
-                if (2 * moveError <= moveDeltaX)
+                if (2 * move.error <= move.deltaX)
                 {
-                    moveError += moveDeltaX;
-                    StepY(moveDirY);
+                    move.error += move.deltaX;
+                    StepY(move.dirY);
                 }
-                if (2 * moveError >= moveDeltaY)
+                if (2 * move.error >= move.deltaY)
                 {
-                    moveError += moveDeltaY;
-                    StepX(moveDirX);
+                    move.error += move.deltaY;
+                    StepX(move.dirX);
                 }
             }
             else
             {
-                // At least x or y has reached its final position, if anything
-                // remains, it must be a straight line.
-                if (posX != moveEndX)
+                ///  At least x or y has reached its final position,
+                /// if anything remains, it must be a straight line.
+                if (posX != move.endX)
                 {
-                    StepX(moveDirX);
+                    StepX(move.dirX);
                 }
 
-                if (posY != moveEndY)
+                if (posY != move.endY)
                 {
-                    StepY(moveDirY);
+                    StepY(move.dirY);
                 }
             }
-            double speedRamp = min(-fabs(moveSteps - moveStep) + moveSteps, 12000.0) / 400.0;
+            double speedRamp = min(-fabs(move.steps - move.step) + move.steps, 12000.0) / 400.0;
             machineSpeed = max(7.0 + 30.0 - speedRamp, 7.0);
-            // machineSpeed = normalSpeed;
-            moveStep++;
+            move.step++;
         }
         SetDirectionsAndLimits();
         break;
@@ -911,33 +926,33 @@ FASTRUN void CalculateDrawSteps()
     posX = M3_pos;
     if (!lineStarted)
     {
-        // check if this is a connected line or do we
-        // need to move to a new location ?
+        /// Check if this is a connected line or do we
+        /// need to move to a new location?
         drawIndex = iBuffer[iBufferReadIndex].index;
-        moveEndX = iBuffer[iBufferReadIndex].startX;
-        moveEndY = iBuffer[iBufferReadIndex].startY;
+        move.endX = iBuffer[iBufferReadIndex].startX;
+        move.endY = iBuffer[iBufferReadIndex].startY;
 
-        if (posX != moveEndX && posY != moveEndY)
+        if (posX != move.endX && posY != move.endY)
         {
-            moveDeltaX = abs(moveEndX - posX);
-            moveDeltaY = -abs(moveEndY - posY);
-            moveDirX = (posX < moveEndX ? 1 : -1);
-            moveDirY = (posY < moveEndY ? 1 : -1);
-            moveError = moveDeltaX + moveDeltaY;
-            if (moveDeltaX > -moveDeltaY)
+            move.deltaX = abs(move.endX - posX);
+            move.deltaY = -abs(move.endY - posY);
+            move.dirX = (posX < move.endX ? 1 : -1);
+            move.dirY = (posY < move.endY ? 1 : -1);
+            move.error = move.deltaX + move.deltaY;
+            if (move.deltaX > -move.deltaY)
             {
-                moveSteps = (double)moveDeltaX * 0.5;
+                move.steps = (double)move.deltaX * 0.5;
             }
             else
             {
-                moveSteps = (double)moveDeltaY * -0.5;
+                move.steps = (double)move.deltaY * -0.5;
             }
             drawFunction = 2;
             moving = true;
         }
         else
         {
-            // already at start pos no need to move
+            // Already at start position,  no need to move.
             if (iBuffer[iBufferReadIndex].type == 1)
             {
                 // Draw Straight Line
@@ -953,55 +968,55 @@ FASTRUN void CalculateDrawSteps()
             drawFunction = 3;
             moving = false;
         }
-        moveStep = 0;
+        move.step = 0;
         lineStarted = true;
     }
 
     if (moving)
     {
-        // move to new location
-        double speedRamp = min(-fabs(moveSteps - moveStep) + moveSteps, 12000.0) / 400.0;
+        // move to new location.h
+        double speedRamp = min(-fabs(move.steps - move.step) + move.steps, 12000.0) / 400.0;
         drawSpeed = max(7.0 + 30.0 - speedRamp, 7.0);
         //  Move in a straight line
-        if (posX != moveEndX && posY != moveEndY)
+        if (posX != move.endX && posY != move.endY)
         {
-            if (2 * moveError <= moveDeltaX)
+            if (2 * move.error <= move.deltaX)
             {
-                moveError += moveDeltaX;
+                move.error += move.deltaX;
                 // stepY??
-                StepY(moveDirY);
+                StepY(move.dirY);
             }
-            if (2 * moveError >= moveDeltaY)
+            if (2 * move.error >= move.deltaY)
             {
-                moveError += moveDeltaY;
+                move.error += move.deltaY;
                 // stepX??
-                StepX(moveDirX);
+                StepX(move.dirX);
             }
         }
         else
         {
             // at least x or y has reached its final position, it anything remains, it must be a straight line
-            if (posX != moveEndX)
+            if (posX != move.endX)
             {
-                StepX(moveDirX);
+                StepX(move.dirX);
             }
             else
             {
-                if (posY != moveEndY)
+                if (posY != move.endY)
                 {
-                    StepY(moveDirY);
+                    StepY(move.dirY);
                 }
                 else
                 {
-                    if (posX == moveEndX && posY == moveEndY)
+                    if (posX == move.endX && posY == move.endY)
                     {
                         // we have arrived at the start of the line?;
                         if (iBuffer[iBufferReadIndex].type == 1)
                         {
                             /// Straight Line
-                            /// TODO: drawError ?    
-                            /// TODO: drawDeltaX ?    
-                            /// TODO: drawDeltaX ?    
+                            /// TODO: drawError ?
+                            /// TODO: drawDeltaX ?
+                            /// TODO: drawDeltaX ?
                         }
                         if (iBuffer[iBufferReadIndex].type == 2)
                         {
@@ -1019,7 +1034,7 @@ FASTRUN void CalculateDrawSteps()
                 }
             }
         }
-        moveStep++;
+        move.step++;
     }
     else
     {
@@ -1163,11 +1178,49 @@ FASTRUN void CalculateQuadBezier()
 
 FASTRUN void DebounceSwitches()
 {
-    // We do a fast press and slow release debounce
-    // press debounce is shifted in 8 StepLoops
-    // release debounce is performed every 300000 cycles
+    /// Fast press and slow release debounce.
+    /// Press debounce is added in 8 StepLoops
+    /// Release debounce is performed every 300000 cycles
 
-    //======== Fast PRESS DEBOUNCE ==========//
+    /// ===================== Fast PRESS DEBOUNCE =====================
+
+    for (int s = 0; s < numSwitches; s++)
+    {
+        switches[s].onBounce += digitalReadFast(switches[s].hwPin);
+
+        if (switches[s].onBounce > 7 && switches[s].pressed == false)
+        {
+            switches[s].offBounce = __UINT8_MAX__;
+            switches[s].pressed = true;
+        }
+    }
+
+    /// Check for panic.
+    if (switches[swPanic].pressed)
+    {
+        // PANIC Button! STOPPING ALL MOTORS Right now
+        digitalWriteFast(M1_M2_M3_ennPin, 1);
+        digitalWriteFast(M4_M5_enPin, 1);
+    }
+
+    // ======== SLOW RELEASE DEBOUNCE ========== //
+
+    /// Every 2 ms ?
+    if (debounceCounter > 300000)
+    {
+        for (int s = 0; s < numSwitches; s++)
+        {
+            switches[s].offBounce <<= 1;
+            switches[s].offBounce != digitalReadFast(switches[s].hwPin);
+
+            if (switches[s].offBounce == 0)
+            {
+                switches[s].pressed = false;
+                switches[s].onBounce = 0;
+            }
+        }
+    }
+    /*
     Limit_Y1_start_on_count += digitalReadFast(Limit_Y1_start_pin);
     Limit_Y1_end_on_count += digitalReadFast(Limit_Y1_end_pin);
     Limit_Y2_start_on_count += digitalReadFast(Limit_Y2_start_pin);
@@ -1234,7 +1287,8 @@ FASTRUN void DebounceSwitches()
         digitalWriteFast(M1_M2_M3_ennPin, 1);
         digitalWriteFast(M4_M5_enPin, 1);
     }
-
+    */
+    /*
     //======== SLOW RELEASE DEBOUNCE ==========//
     if (debounceCounter > 300000)
     { // every 2 ms ?
@@ -1316,6 +1370,7 @@ FASTRUN void DebounceSwitches()
             panic_on_count = 0;
         }
     }
+    */
 }
 
 void updateStepperStatus()
@@ -1379,6 +1434,24 @@ void updateStepperStatus()
 
 void configureSwitches()
 {
+    switches[swPanic].hwPin = pinPanic;
+    switches[swY1Start].hwPin = pinY1Start;
+    switches[swY1End].hwPin = pinY1End;
+    switches[swY2Start].hwPin = pinY2Start;
+    switches[swY2End].hwPin = pinY2End;
+    switches[swXStart].hwPin = pinXStart;
+    switches[swXEnd].hwPin = pinXEnd;
+    switches[swZStart].hwPin = pinXStart;
+    switches[swZEnd].hwPin = pinXEnd;
+
+    for (int s = 0; s < numSwitches; s++)
+    {
+        pinMode(switches[s].hwPin, INPUT_PULLUP);
+        switches[s].onBounce = 0;
+        switches[s].offBounce = __UINT8_MAX__;
+        switches[s].pressed = false;
+    }
+    /*
     pinMode(Limit_Y1_start_pin, INPUT_PULLUP);
     pinMode(Limit_Y1_end_pin, INPUT_PULLUP);
     pinMode(Limit_Y2_start_pin, INPUT_PULLUP);
@@ -1389,6 +1462,7 @@ void configureSwitches()
     pinMode(Limit_Z_end_pin, INPUT_PULLUP);
 
     pinMode(panic_pin, INPUT_PULLUP);
+    */
 }
 
 void configureStepperDrivers()
@@ -1587,29 +1661,29 @@ void configureStepperDrivers()
     // digitalWriteFast(M5_dirPin,0);
 }
 
-TMC262::STATUS setTMC262Register(uint8_t bytes[3], int CSPIN)
+TMC262::STATUS setTMC262Register(uint8_t bytes[3], int CSPin)
 {
     TMC262::STATUS st = {0};
     SPI1.beginTransaction(tmc262_spi_config);
-    digitalWriteFast(CSPIN, 0);
+    digitalWriteFast(CSPin, 0);
     delayNanoseconds(spi_cs_delay);
     st.bytes[2] = SPI1.transfer(bytes[2]);
     st.bytes[1] = SPI1.transfer(bytes[1]);
     st.bytes[0] = SPI1.transfer(bytes[0]);
-    digitalWriteFast(CSPIN, 1);
+    digitalWriteFast(CSPin, 1);
     SPI1.endTransaction();
     return st;
 }
 
-TMC2130::SPI_STATUS setTMC2130Register(uint8_t address, uint32_t data, int CSPIN)
+TMC2130::SPI_STATUS setTMC2130Register(uint8_t address, uint32_t data, int CSPin)
 {
     TMC2130::SPI_STATUS st = {0};
     SPI1.beginTransaction(tmc2130_spi_config);
-    digitalWriteFast(CSPIN, 0);
+    digitalWriteFast(CSPin, 0);
     delayNanoseconds(spi_cs_delay);
     st.value = SPI1.transfer(address | 0x80);
     SPI1.transfer32(data);
-    digitalWriteFast(CSPIN, 1);
+    digitalWriteFast(CSPin, 1);
     SPI1.endTransaction();
     return st;
 }
