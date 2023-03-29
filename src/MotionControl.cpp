@@ -59,7 +59,8 @@ volatile bool sleeping = false;
 /// Debounce cycle counter
 volatile uint32_t debounceCounter = 0;
 
-extern volatile LimitSwitch switches[numSwitches];
+/// Collection of switches.
+volatile LimitSwitch switches[numSwitches];
 
 /*
 const int panic_pin = 23;
@@ -555,7 +556,7 @@ FASTRUN void SetDirectionsAndLimits()
         if (switches[swY2End].pressed)
             stepM2 = false;
         // if (Limit_Y2_end)
-            // stepM2 = false;
+        // stepM2 = false;
     }
     if (M2_direction == -1)
     {
@@ -572,24 +573,24 @@ FASTRUN void SetDirectionsAndLimits()
         if (switches[swXEnd].pressed)
             stepM3 = false;
         // if (Limit_X_end)
-            // stepM3 = false;
+        // stepM3 = false;
     }
     if (M3_direction == -1)
     {
         digitalWriteFast(M3_dirPin, LOW);
         if (switches[swXStart].pressed)
-            stepM3 = false;        
+            stepM3 = false;
         // if (Limit_X_start)
-            // stepM3 = false;
+        // stepM3 = false;
     }
 
     if (M4_direction == 1)
     {
         digitalWriteFast(M4_dirPin, LOW); // Motor reverse mount
         if (switches[swZEnd].pressed)
-            stepM4 = false;        
+            stepM4 = false;
         // if (Limit_Z_end)
-            // stepM4 = false;
+        // stepM4 = false;
     }
     if (M4_direction == -1)
     {
@@ -597,7 +598,7 @@ FASTRUN void SetDirectionsAndLimits()
         if (switches[swZStart].pressed)
             stepM4 = false;
         // if (Limit_Z_start)
-            // stepM4 = false;
+        // stepM4 = false;
     }
 
     // digitalWriteFast(M5_dirPin, M5_direction);
@@ -782,6 +783,10 @@ FASTRUN void MapHeight()
                 }
             }
         }
+        break;
+    }
+    case (MapHeightState::Choose):
+    {
         break;
     }
     /// ================================================
@@ -1211,7 +1216,7 @@ FASTRUN void DebounceSwitches()
         for (int s = 0; s < numSwitches; s++)
         {
             switches[s].offBounce <<= 1;
-            switches[s].offBounce != digitalReadFast(switches[s].hwPin);
+            switches[s].offBounce |= digitalReadFast(switches[s].hwPin);
 
             if (switches[s].offBounce == 0)
             {
