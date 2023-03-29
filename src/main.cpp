@@ -2,18 +2,14 @@
 #include <SPI.h>
 
 #include "MotionControl.h"
-// #include "PWMSounds.h"
 
 elapsedMillis disconnectTimer;
 elapsedMillis statusTimer;
 elapsedMillis requestTimer;
 elapsedMicros drawTimeout;
 
-// const int AudioPin = 33;
-// const int lcd_cmdPin = 23;
-// const int lcd_writePin = 22;
-
 /// A module to measure power usage (ampere) is connected via SPI0
+
 const int powerSenseCSPin = 34;
 SPISettings spiPowerSenseConfig(16000000, MSBFIRST, SPI_MODE0);
 int32_t powerSenseData = 0;
@@ -55,9 +51,7 @@ enum command
     BYTE_DRAW_INSTRUCTION = 0xFF
 };
 
-/// ---------------------------------------------------------------------------
-/// Serial protocol
-
+/// ===================== Serial protocol =====================
 byte serialMessageData[250]; /// 250bytes reserved for serial message data.
 int serialMessageSize = 0;
 int serialInstructionHeaderCount = 0;
@@ -78,22 +72,17 @@ int serialEOFHeaderCount = 0;
 
 void getSerial(int bytesToRead);
 
-/// ---------------------------------------------------------------------------
-/// setup - Configure and initialise hardware.
+/// ===================== setup - Configure and initialise hardware. =====================
 
 void setup()
 {
     Serial.begin(115200);
 
-    //  pinMode(AudioPin, OUTPUT);
     pinMode(powerSenseCSPin, OUTPUT);
     digitalWriteFast(powerSenseCSPin, HIGH);
 
     // PowerSense on SPI0
     SPI.begin();
-
-    // playVictorySound(AudioPin);
-    // playBeep(AudioPin);
 
     delay(100);
 
@@ -103,13 +92,12 @@ void setup()
     StartUp();
 }
 
-/// ---------------------------------------------------------------------------
-/// loop  - Main program loop
+/// ===================== loop  - Main program loop =====================
 
 void loop()
 {
 
-    /// Are we connected to the Loader program?
+    /// Connected to the Loader program?
     if (Serial.dtr())
     {
         disconnectTimer = 0;
@@ -193,7 +181,7 @@ void loop()
             status += "$";
             status += String((powerSenseData - 2047) * 12);
             status += "$";
-            for (int s = 0; s < 8; s++)
+            for (int s = 1; s < 9; s++)
             {
                 status += String(switches[s].pressed);
                 status += "$";

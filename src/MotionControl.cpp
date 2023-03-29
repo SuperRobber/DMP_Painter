@@ -1446,8 +1446,8 @@ void configureSwitches()
     switches[swY2End].hwPin = pinY2End;
     switches[swXStart].hwPin = pinXStart;
     switches[swXEnd].hwPin = pinXEnd;
-    switches[swZStart].hwPin = pinXStart;
-    switches[swZEnd].hwPin = pinXEnd;
+    switches[swZStart].hwPin = pinZStart;
+    switches[swZEnd].hwPin = pinZEnd;
 
     for (int s = 0; s < numSwitches; s++)
     {
