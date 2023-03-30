@@ -13,9 +13,6 @@
 ///
 /// 5. Separate Configuration // Hardware setup to another file ?
 ///
-/// 6. Pause = Stop ?
-/// 6a. Add stop to Home
-/// 6b. Add stop to Map   
 
 #ifndef MOTIONCONTROL_H
 #define MOTIONCONTROL_H
@@ -94,10 +91,9 @@ enum class Mode
 enum class DrawState
 {
     None,
-    LineStart,
+    Choose,
     Move,
-    Wait,
-    Done
+    Draw
 };
 
 /// @brief State Machine used for homing.
@@ -251,12 +247,15 @@ extern volatile int32_t M5_pos;
 FASTRUN void MachineLoop();
 
 /// @brief The homing algorithm
-FASTRUN void CalculateHomeSteps();
+// FASTRUN void CalculateHomeSteps();
 
 /// @brief The drawing algorithm.
 FASTRUN void CalculateDrawSteps();
 
-/// @brief The height mapping algorithm.
+/// @brief The drawing algorithm.
+FASTRUN void Draw();
+
+/// @brief The homing algorithm.
 FASTRUN void Home();
 
 /// @brief The height mapping algorithm.

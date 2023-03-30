@@ -120,10 +120,10 @@ volatile int64_t posZ = 0;
 RoboTimer IRQTimer;
 
 /// Interrupt iteration times (speeds).
-volatile float moveSpeed = 15.0f;
-volatile float drawSpeed = 15.0f;
-volatile float homeSpeed = 100.0f;
-volatile float normalSpeed = 100.0f;
+// const float moveSpeed = 15.0f;
+const float drawSpeed = 15.0f;
+const float homeSpeed = 100.0f;
+const float normalSpeed = 100.0f;
 
 /// @brief Interrupt iteration time (speed).
 /// Interrupt type is always set to machineSpeed,
@@ -154,7 +154,7 @@ volatile int8_t M5_direction = 0;
 /// Track performance / measure interrupt-loop time.
 volatile uint32_t max_step_cycles = 0;
 
-/// =====================  =====================
+/// ==========================================
 
 void StartUp()
 {
@@ -203,79 +203,14 @@ FASTRUN void MachineLoop()
         requestedMode = Mode::None;
         activeMode = Mode::None;
     }
+    case Mode::EOL:
+    {
+        requestedMode = Mode::None;
+        activeMode = Mode::None;
+    }
     case Mode::Draw:
     {
-        /// Perform Motor Steps.
-        /// As calculated in previous iteration and update positions.
-        StepMotors();
-
-        /// Reset step trigger and start next iteration.
-        stepM1 = stepM2 = stepM3 = stepM4 = stepM5 = false;
-
-        /// Check for End of Line and Stop-Request at end of line.
-        if (lineStarted)
-        {
-            if (posX == iBuffer[iBufferReadIndex].endX && posY == iBuffer[iBufferReadIndex].endY)
-            {
-                /// Done drawing current line!
-                iBufferReadIndex = (iBufferReadIndex + 1) & 63;
-                drawFunction = 0;
-                lineStarted = false;
-
-                /// Is there a request to Stop drawing?
-                if (requestedMode == Mode::Stop)
-                {
-                    activeMode = Mode::Stop;
-                    // Do not execute the rest of this case.
-                    break;
-                }
-            }
-        }
-
-        /// Are there active or new instructions that need to be drawn ?
-        if (iBufferReadIndex != iBufferWriteIndex)
-        {
-            /// Calculate movement for the next step.
-            CalculateDrawSteps();
-            SetDirectionsAndLimits();
-
-            machineSpeed = drawSpeed;
-
-            if (sleeping)
-            {
-                /// Wake up
-                setCurrent(workCurrent);
-                sleeping = false;
-            }
-            sleepTimer = 0;
-        }
-        else
-        {
-            /// Nothing left to do right now.
-
-            if (requestedMode == Mode::EOL)
-            {
-                /// End of File reached. Done drawing all instructions.
-                requestedMode = Mode::None;
-                activeMode = Mode::None;
-            }
-            else
-            {
-                /// Wait for an EOF or new instructions to arrive
-                /// in the draw instruction buffer.
-                if (!sleeping)
-                {
-                    sleepTimer++;
-                    if (sleepTimer > 50000)
-                    {
-                        sleeping = true;
-                        setCurrent(sleepCurrent);
-                        sleepTimer = 0;
-                    }
-                }
-                machineSpeed = 100.0f;
-            }
-        }
+        Draw();
         break;
     }
     case Mode::Home:
@@ -288,7 +223,6 @@ FASTRUN void MachineLoop()
         MapHeight();
         break;
     }
-
     case Mode::ClearHeight:
     {
         /// clear HeightMap and EEPROM
@@ -309,10 +243,15 @@ FASTRUN void MachineLoop()
     }
     case Mode::None:
     {
+        stepM1 = false;
+        stepM2 = false;
+        stepM3 = false;
+        stepM4 = false;
+        stepM5 = false;
+        
         if (!sleeping)
         {
             statusFunction = StatusFunction::Waiting;
-
             sleepTimer++;
             if (sleepTimer > 50000)
             {
@@ -324,12 +263,15 @@ FASTRUN void MachineLoop()
 
         if (requestedMode == Mode::Draw)
         {
-            stepM1 = false;
-            stepM2 = false;
-            stepM3 = false;
-            stepM4 = false;
-            stepM5 = false;
-            drawSpeed = 100.0f;
+            if (sleeping) /// Wake up
+            {
+                setCurrent(workCurrent);
+                sleeping = false;
+            }
+            sleepTimer = 0;
+
+            drawState = DrawState::Choose;
+            statusFunction = StatusFunction::Waiting;
             activeMode = Mode::Draw;
         }
 
@@ -375,7 +317,7 @@ FASTRUN void MachineLoop()
             activeMode = Mode::ClearHeight;
         }
 
-        machineSpeed = 100.0f;
+        machineSpeed = normalSpeed;
         break;
     }
     default:
@@ -415,6 +357,245 @@ FASTRUN void MachineLoop()
     }
 }
 
+FASTRUN void Draw()
+{
+    switch (drawState)
+    {
+    case (DrawState::None):
+    {
+        break;
+    }
+    /// ================================================
+    case (DrawState::Choose):
+    {
+        machineSpeed = normalSpeed;
+        if (requestedMode == Mode::Stop)
+        {
+            // LIFT PEN etc
+            activeMode = Mode::Stop;
+            drawState = DrawState::None;
+        }
+
+        /// Are there active or new instructions that need to be drawn ?
+        if (iBufferReadIndex == iBufferWriteIndex)
+        {
+            /// Buffer is empty, Wait for EOL, or
+            /// additional instructions.
+
+            if (requestedMode == Mode::EOL)
+            {
+                activeMode = Mode::EOL;
+                drawState = DrawState::None;
+            }
+            break;
+        }
+        else
+        {
+            /// Start a new instruction.
+            drawIndex = iBuffer[iBufferReadIndex].index;
+
+            /// Prepare draw variables.
+            drawError = iBuffer[iBufferReadIndex].error;
+            drawDeltaX = iBuffer[iBufferReadIndex].deltaX;
+            drawDeltaY = iBuffer[iBufferReadIndex].deltaY;
+
+            /// Move first?
+            if (posX == iBuffer[iBufferReadIndex].startX && posY == iBuffer[iBufferReadIndex].startY)
+            {
+                // Already at start position, continue drawing.
+                drawState = DrawState::Draw;
+                statusFunction = StatusFunction::Drawing;
+
+                /// Continue straight on to drawing by calling Draw() again,
+                /// but make sure to break and beware of endless loops!!
+                Draw();
+                break;
+            }
+            else
+            {
+                /// Set up a new movement
+                move.endX = iBuffer[iBufferReadIndex].startX;
+                move.endY = iBuffer[iBufferReadIndex].startY;
+                move.deltaX = abs(move.endX - posX);
+                move.deltaY = -abs(move.endY - posY);
+                move.dirX = (posX < move.endX ? 1 : -1);
+                move.dirY = (posY < move.endY ? 1 : -1);
+                move.error = move.deltaX + move.deltaY;
+                if (move.deltaX > -move.deltaY)
+                {
+                    move.steps = (double)move.deltaX * 0.5;
+                }
+                else
+                {
+                    move.steps = (double)move.deltaY * -0.5;
+                }
+                move.step = 0;
+                drawState = DrawState::Move;
+                statusFunction = StatusFunction::Moving;
+
+                /// No urgency to continue straight on need to move // lift pen etc
+                break;
+            }
+        }
+        break;
+    }
+    /// ===============================================
+    case (DrawState::Move):
+    {
+        StepMotors();
+
+        if (posX == move.endX && posY == move.endY)
+        {
+            // At the start position, let's draw now.
+            drawState = DrawState::Choose;
+            statusFunction = StatusFunction::Waiting;
+
+            /// No urgency to continue straight on need to move // lift pen etc
+            break;
+        }
+
+        if (posX != move.endX && posY != move.endY)
+        {
+            if (2 * move.error <= move.deltaX)
+            {
+                move.error += move.deltaX;
+                // stepY??
+                StepY(move.dirY);
+            }
+            if (2 * move.error >= move.deltaY)
+            {
+                move.error += move.deltaY;
+                // stepX??
+                StepX(move.dirX);
+            }
+        }
+        else
+        {
+            /// Either X or Y has reached its final position, if anything
+            /// remains, it must be a straight line.
+
+            if (posX != move.endX)
+            {
+                StepX(move.dirX);
+            }
+
+            if (posY != move.endY)
+            {
+                StepY(move.dirY);
+            }
+        }
+        double speedRamp = min(-fabs(move.steps - move.step) + move.steps, 12000.0) / 400.0;
+        machineSpeed = max(7.0 + 30.0 - speedRamp, 7.0);
+        move.step++;
+        SetDirectionsAndLimits();
+        break;
+    }
+    /// ================================================
+    case (DrawState::Draw):
+    {
+        StepMotors();
+
+        if (posX == iBuffer[iBufferReadIndex].endX && posY == iBuffer[iBufferReadIndex].endY)
+        {
+            /// Done drawing current line!
+            iBufferReadIndex = (iBufferReadIndex + 1) & 63;
+            drawState = DrawState::Choose;
+
+            /// Continue straight on to drawing by calling Draw() again,
+            /// but make sure to break and beware of endless loops!!
+            Draw();
+            break;
+        }
+
+        if (iBuffer[iBufferReadIndex].type == 1)
+        {
+            CalculateStraightLine();
+        }
+
+        if (iBuffer[iBufferReadIndex].type == 2)
+        {
+            CalculateQuadBezier();
+        }
+
+        SetDirectionsAndLimits();
+        machineSpeed = drawSpeed;
+        break;
+    }
+    }
+}
+
+FASTRUN void CalculateStraightLine()
+{
+    // Draw Straight Line
+    if (posX != iBuffer[iBufferReadIndex].endX && posY != iBuffer[iBufferReadIndex].endY)
+    {
+        if (2 * drawError <= drawDeltaX)
+        {
+            drawError += drawDeltaX;
+            // stepY??
+            StepY(iBuffer[iBufferReadIndex].dirY);
+        }
+        if (2 * drawError >= drawDeltaY)
+        {
+            drawError += drawDeltaY;
+            // stepX??
+            StepX(iBuffer[iBufferReadIndex].dirX);
+        }
+    }
+    else
+    {
+        // At least x or y has reached its final position, if anything remains,
+        // it must be a straight line.
+        if (posX != iBuffer[iBufferReadIndex].endX)
+        {
+            StepX(iBuffer[iBufferReadIndex].dirX);
+        }
+
+        if (posY != iBuffer[iBufferReadIndex].endY)
+        {
+            StepY(iBuffer[iBufferReadIndex].dirY);
+        }
+    }
+}
+
+FASTRUN void CalculateQuadBezier()
+{
+    // Draw Quadratic Bezier
+    if (posX != iBuffer[iBufferReadIndex].endX && posY != iBuffer[iBufferReadIndex].endY)
+    {
+        bool do_step_x = 2 * drawError - drawDeltaX >= 0;
+        bool do_step_y = 2 * drawError - drawDeltaY <= 0;
+        if (do_step_x)
+        {
+            StepX(iBuffer[iBufferReadIndex].dirX);
+            drawDeltaY -= iBuffer[iBufferReadIndex].deltaXY;
+            drawDeltaX += iBuffer[iBufferReadIndex].deltaXX;
+            drawError += drawDeltaX;
+        }
+        if (do_step_y)
+        {
+            StepY(iBuffer[iBufferReadIndex].dirY);
+            drawDeltaX -= iBuffer[iBufferReadIndex].deltaXY;
+            drawDeltaY += iBuffer[iBufferReadIndex].deltaYY;
+            drawError += drawDeltaY;
+        }
+    }
+    else
+    {
+        // At least x or y has reached its final position, if anything remains,
+        // it must be a straight line.
+        if (posX != iBuffer[iBufferReadIndex].endX)
+        {
+            StepX(iBuffer[iBufferReadIndex].dirX);
+        }
+
+        if (posY != iBuffer[iBufferReadIndex].endY)
+        {
+            StepY(iBuffer[iBufferReadIndex].dirY);
+        }
+    }
+}
+
 FASTRUN void Home()
 {
     switch (homeState)
@@ -445,6 +626,9 @@ FASTRUN void Home()
             M2_pos = 0;
             M3_pos = 0;
             M4_pos = 0;
+            posX=0;
+            posY=0;
+            posZ=0;
             homeState = HomeState::Zero;
             statusFunction = StatusFunction::Homing;
         }
@@ -462,7 +646,6 @@ FASTRUN void Home()
 
         SetDirectionsAndLimits();
         machineSpeed = homeSpeed;
-
         break;
     }
     /// ================================================
@@ -487,6 +670,9 @@ FASTRUN void Home()
             M2_pos = 0;
             M3_pos = 0;
             M4_pos = 0;
+            posX=0;
+            posY=0;
+            posZ=0;
             homeState = HomeState::Done;
             statusFunction = StatusFunction::Waiting;
         }
@@ -540,7 +726,6 @@ FASTRUN void Home()
 
         SetDirectionsAndLimits();
         machineSpeed = homeSpeed;
-
         break;
     }
     /// ================================================
@@ -556,7 +741,6 @@ FASTRUN void Home()
 
 FASTRUN void MapHeight()
 {
-
     switch (mapHeightState)
     {
     case (MapHeightState::None):
@@ -758,137 +942,6 @@ FASTRUN void MapHeight()
     }
 }
 
-FASTRUN void CalculateDrawSteps()
-{
-    posY = M1_pos;
-    posX = M3_pos;
-    if (!lineStarted)
-    {
-        /// Check if this is a connected line or do we
-        /// need to move to a new location?
-        drawIndex = iBuffer[iBufferReadIndex].index;
-        move.endX = iBuffer[iBufferReadIndex].startX;
-        move.endY = iBuffer[iBufferReadIndex].startY;
-
-        if (posX != move.endX && posY != move.endY)
-        {
-            move.deltaX = abs(move.endX - posX);
-            move.deltaY = -abs(move.endY - posY);
-            move.dirX = (posX < move.endX ? 1 : -1);
-            move.dirY = (posY < move.endY ? 1 : -1);
-            move.error = move.deltaX + move.deltaY;
-            if (move.deltaX > -move.deltaY)
-            {
-                move.steps = (double)move.deltaX * 0.5;
-            }
-            else
-            {
-                move.steps = (double)move.deltaY * -0.5;
-            }
-            drawFunction = 2;
-            moving = true;
-        }
-        else
-        {
-            // Already at start position,  no need to move.
-            if (iBuffer[iBufferReadIndex].type == 1)
-            {
-                // Draw Straight Line
-            }
-            if (iBuffer[iBufferReadIndex].type == 2)
-            {
-                // Quadratic Bezier
-                drawError = iBuffer[iBufferReadIndex].error;
-                drawDeltaX = iBuffer[iBufferReadIndex].deltaX;
-                drawDeltaY = iBuffer[iBufferReadIndex].deltaY;
-            }
-            drawSpeed = 15.0f;
-            drawFunction = 3;
-            moving = false;
-        }
-        move.step = 0;
-        lineStarted = true;
-    }
-
-    if (moving)
-    {
-        // move to new location.h
-        double speedRamp = min(-fabs(move.steps - move.step) + move.steps, 12000.0) / 400.0;
-        drawSpeed = max(7.0 + 30.0 - speedRamp, 7.0);
-        //  Move in a straight line
-        if (posX != move.endX && posY != move.endY)
-        {
-            if (2 * move.error <= move.deltaX)
-            {
-                move.error += move.deltaX;
-                // stepY??
-                StepY(move.dirY);
-            }
-            if (2 * move.error >= move.deltaY)
-            {
-                move.error += move.deltaY;
-                // stepX??
-                StepX(move.dirX);
-            }
-        }
-        else
-        {
-            // at least x or y has reached its final position, it anything remains, it must be a straight line
-            if (posX != move.endX)
-            {
-                StepX(move.dirX);
-            }
-            else
-            {
-                if (posY != move.endY)
-                {
-                    StepY(move.dirY);
-                }
-                else
-                {
-                    if (posX == move.endX && posY == move.endY)
-                    {
-                        // we have arrived at the start of the line?;
-                        if (iBuffer[iBufferReadIndex].type == 1)
-                        {
-                            /// Straight Line
-                            /// TODO: drawError ?
-                            /// TODO: drawDeltaX ?
-                            /// TODO: drawDeltaX ?
-                        }
-                        if (iBuffer[iBufferReadIndex].type == 2)
-                        {
-                            // Quadratic Bezier
-                            drawError = iBuffer[iBufferReadIndex].error;
-                            drawDeltaX = iBuffer[iBufferReadIndex].deltaX;
-                            drawDeltaY = iBuffer[iBufferReadIndex].deltaY;
-                        }
-                        drawSpeed = 15.0f;
-                        drawFunction = 3;
-                        moving = false;
-
-                        // do we pause here ?
-                    }
-                }
-            }
-        }
-        move.step++;
-    }
-    else
-    {
-        // draw
-        if (iBuffer[iBufferReadIndex].type == 1)
-        {
-            CalculateStraightLine();
-        }
-
-        if (iBuffer[iBufferReadIndex].type == 2)
-        {
-            CalculateQuadBezier();
-        }
-    }
-}
-
 FASTRUN void StepMotors()
 {
     if (stepM1)
@@ -1032,81 +1085,6 @@ FASTRUN void setCurrent(int cur)
     setTMC262Register(stallGuardConfig.bytes, M1_csPin);
     setTMC262Register(stallGuardConfig.bytes, M2_csPin);
     setTMC262Register(stallGuardConfig.bytes, M3_csPin);
-}
-
-FASTRUN void CalculateStraightLine()
-{
-    // Draw Straight Line
-    if (posX != iBuffer[iBufferReadIndex].endX && posY != iBuffer[iBufferReadIndex].endY)
-    {
-        if (2 * drawError <= drawDeltaX)
-        {
-            drawError += drawDeltaX;
-            // stepY??
-            StepY(iBuffer[iBufferReadIndex].dirY);
-        }
-        if (2 * drawError >= drawDeltaY)
-        {
-            drawError += drawDeltaY;
-            // stepX??
-            StepX(iBuffer[iBufferReadIndex].dirX);
-        }
-    }
-    else
-    {
-        // at least x or y has reached its final position, it anything remains, it must be a straight line
-        if (posX != iBuffer[iBufferReadIndex].endX)
-        {
-            StepX(iBuffer[iBufferReadIndex].dirX);
-        }
-        else
-        {
-            if (posY != iBuffer[iBufferReadIndex].endY)
-            {
-                StepY(iBuffer[iBufferReadIndex].dirY);
-            }
-        }
-    }
-}
-
-FASTRUN void CalculateQuadBezier()
-{
-    // Draw Quadratic Bezier
-    if (posX != iBuffer[iBufferReadIndex].endX && posY != iBuffer[iBufferReadIndex].endY)
-    {
-        bool do_step_x = 2 * drawError - drawDeltaX >= 0;
-        bool do_step_y = 2 * drawError - drawDeltaY <= 0;
-        if (do_step_x)
-        {
-            StepX(iBuffer[iBufferReadIndex].dirX);
-            drawDeltaY -= iBuffer[iBufferReadIndex].deltaXY;
-            drawDeltaX += iBuffer[iBufferReadIndex].deltaXX;
-            drawError += drawDeltaX;
-        }
-        if (do_step_y)
-        {
-            StepY(iBuffer[iBufferReadIndex].dirY);
-            // posY += iBuffer[iBufferReadIndex].dirY;
-            drawDeltaX -= iBuffer[iBufferReadIndex].deltaXY;
-            drawDeltaY += iBuffer[iBufferReadIndex].deltaYY;
-            drawError += drawDeltaY;
-        }
-    }
-    else
-    {
-        // at least x or y has reached its final position, it anything remains, it must be a straight line
-        if (posX != iBuffer[iBufferReadIndex].endX)
-        {
-            StepX(iBuffer[iBufferReadIndex].dirX);
-        }
-        else
-        {
-            if (posY != iBuffer[iBufferReadIndex].endY)
-            {
-                StepY(iBuffer[iBufferReadIndex].dirY);
-            }
-        }
-    }
 }
 
 FASTRUN void DebounceSwitches()
