@@ -19,8 +19,8 @@ volatile int64_t receivedInstruction = -1;
 
 volatile DrawState drawState = DrawState::None;
 
-volatile bool moving = true;
-volatile bool lineStarted = false;
+// volatile bool moving = true;
+// volatile bool lineStarted = false;
 
 volatile int64_t drawDeltaX = 0;
 volatile int64_t drawDeltaY = 0;
@@ -30,21 +30,21 @@ volatile int64_t drawError = 0;
 
 volatile HomeState homeState = HomeState::None;
 
-// volatile bool isHome = false;
-// volatile bool isZero = false;
-// volatile bool isMax = false;
-
 // ===================== Height Mapping algorithm. =====================
 
 volatile MapHeightState mapHeightState = MapHeightState::None;
 volatile int64_t HeightMap[HeightMapSize];
-volatile int HeightMapSetIndex = 0;
+
+const int heightMapMaxCount = 7; // number of times to probe one position;
+volatile int64_t HeightMapProbeResults[heightMapMaxCount];
+volatile int heightMapIndex = 0;
+volatile int heightMapCount = 0;
 
 /// ===================== Power Saving =====================
 
 volatile uint64_t sleepTimer = 0;
-const int workCurrent = 20;
-const int sleepCurrent = 1;
+const int workCurrent = 16;
+const int sleepCurrent = 2;
 volatile bool sleeping = false;
 
 /// ===================== Limit switches =====================
@@ -167,6 +167,7 @@ void StartUp()
             b64.bytes[e] = EEPROM.read(i * 8 + e);
         }
         HeightMap[i] = b64.value;
+        Serial.println(HeightMap[i]);
     }
     activeMode = Mode::None;
     requestedMode = Mode::None;
@@ -182,7 +183,7 @@ void StartUp()
     delay(500);
 
     requestedMode = Mode::None;
-    lineStarted = false;
+    // lineStarted = false;
 
     /// Configure interrupt timer
     /// 150Mhz PIT timer clock
@@ -236,6 +237,7 @@ FASTRUN void MachineLoop()
                 EEPROM.write(i * 8 + e, b64.bytes[e]);
             }
         }
+        heightMapCount = 0;
         Serial.println("HeightMap cleared.");
         requestedMode = Mode::None;
         activeMode = Mode::None;
@@ -248,12 +250,12 @@ FASTRUN void MachineLoop()
         stepM3 = false;
         stepM4 = false;
         stepM5 = false;
-        
+
         if (!sleeping)
         {
             statusFunction = StatusFunction::Waiting;
             sleepTimer++;
-            if (sleepTimer > 50000)
+            if (sleepTimer > 500000)
             {
                 sleeping = true;
                 setCurrent(sleepCurrent);
@@ -626,9 +628,9 @@ FASTRUN void Home()
             M2_pos = 0;
             M3_pos = 0;
             M4_pos = 0;
-            posX=0;
-            posY=0;
-            posZ=0;
+            posX = 0;
+            posY = 0;
+            posZ = 0;
             homeState = HomeState::Zero;
             statusFunction = StatusFunction::Homing;
         }
@@ -670,9 +672,9 @@ FASTRUN void Home()
             M2_pos = 0;
             M3_pos = 0;
             M4_pos = 0;
-            posX=0;
-            posY=0;
-            posZ=0;
+            posX = 0;
+            posY = 0;
+            posZ = 0;
             homeState = HomeState::Done;
             statusFunction = StatusFunction::Waiting;
         }
@@ -750,18 +752,18 @@ FASTRUN void MapHeight()
     /// ================================================
     case (MapHeightState::Choose):
     {
-        HeightMapSetIndex = -1;
+        heightMapIndex = -1;
 
         /// Get index of the First HeightMap position that is not set.
         for (int i = (HeightMapSize - 1); i >= 0; i--)
         {
             if (HeightMap[i] == INT64_MIN)
             {
-                HeightMapSetIndex = i;
+                heightMapIndex = i;
             }
         }
 
-        if (HeightMapSetIndex == -1)
+        if (heightMapIndex == -1)
         {
             /// HeightMap is set completely.
             if (posZ != 0)
@@ -778,7 +780,7 @@ FASTRUN void MapHeight()
         }
         else
         {
-            /// HeightMapIndex needs mapping.
+            /// heightMapIndex needs mapping.
             if (posZ != 0)
             {
                 /// Move up first, then return here.
@@ -797,8 +799,8 @@ FASTRUN void MapHeight()
                 }
 
                 /// Ready to move to the correct position
-                move.endX = (XMAX / 3) * (HeightMapSetIndex % 4);
-                move.endY = (YMAX / 5) * (HeightMapSetIndex / 4);
+                move.endX = (XMAX / (HeightMapWidth-1)) * (heightMapIndex % HeightMapWidth);
+                move.endY = (YMAX / (HeightMapHeight-1)) * (heightMapIndex / HeightMapWidth);
 
                 if (posX == move.endX && posY == move.endY)
                 {
@@ -915,18 +917,80 @@ FASTRUN void MapHeight()
     /// ================================================
     case (MapHeightState::MoveDown):
     {
-        /// Skip for now
-        /// Set height in the heightmap.
-        HeightMap[HeightMapSetIndex] = 0;
+        /// Hit the floor
+        StepMotors();
 
-        Serial.print("Height set for inded:");
-        Serial.println(HeightMapSetIndex);
+        if (switches[swZEnd].pressed)
+        {
+            /// add value to sum
+            HeightMapProbeResults[heightMapCount] = posZ;
+            heightMapCount++;
 
-        /// Check if we need to map another position in the map.
-        /// Switch to state: Choose
-        mapHeightState = MapHeightState::Choose;
+            if (heightMapCount >= heightMapMaxCount)
+            {
+
+                /// Get the index for the heighest and lowest value.
+                int indexHeighest = 0;
+                int indexLowest = 0;
+                for (int i = 1; i < heightMapCount; i++)
+                {
+                    if (HeightMapProbeResults[i] > HeightMapProbeResults[indexHeighest])
+                        indexHeighest = i;
+                    if (HeightMapProbeResults[i] < HeightMapProbeResults[indexLowest])
+                        indexLowest = i;
+                }
+                int sumCount = 0;
+                uint64_t sum = 0;
+                for (int i = 0; i < heightMapCount; i++)
+                {
+                    if (i == indexHeighest || i == indexLowest)
+                    {
+                        /// skip
+                    }
+                    else
+                    {
+                        sum += HeightMapProbeResults[i];
+                        sumCount++;
+                    }
+                }
+                uint64_t height = 0;
+                if (heightMapIndex == 0)
+                {
+                    height = (sum / sumCount);
+                }
+                else
+                {
+                    height = HeightMap[0] - (sum / sumCount);
+                }
+
+                HeightMap[heightMapIndex] = height;
+
+                /// store in EEPROM
+                byte64 b64 = {};
+                b64.value = height;
+                for (int e = 0; e < 8; e++)
+                {
+                    EEPROM.write(heightMapIndex * 8 + e, b64.bytes[e]);
+                }
+
+                // reset count for next index.
+                Serial.print("Height set for index:");
+                Serial.print(heightMapIndex);
+                Serial.print(" to:");
+                Serial.println(HeightMap[heightMapIndex]);
+                heightMapCount = 0;
+            }
+
+            /// Check if we need to map another position in the map.
+            /// Switch to state: Choose
+            mapHeightState = MapHeightState::Choose;
+            machineSpeed = normalSpeed;
+            break;
+        }
+        StepZ(1);
         machineSpeed = normalSpeed;
 
+        SetDirectionsAndLimits();
         break;
     }
 
@@ -1343,8 +1407,8 @@ void configureStepperDrivers()
 
     // Write IHOLD_IRUN
     TMC2130::IHOLD_IRUN CurrentControl = {0};
-    CurrentControl.IHOLD = 2;
-    CurrentControl.IRUN = 16;
+    CurrentControl.IHOLD = 4;
+    CurrentControl.IRUN = 12;
     CurrentControl.IHOLDDELAY = 15;
     setTMC2130Register(TMC2130::registers::reg_IHOLD_IRUN, CurrentControl.data, M4_csPin);
     // setTMC2130Register(TMC2130::registers::reg_IHOLD_IRUN, CurrentControl.data, M5_csPin);

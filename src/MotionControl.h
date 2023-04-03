@@ -141,9 +141,9 @@ extern volatile int64_t receivedInstruction;
 
 // ===================== Height Mapping algorithm. =====================
 
-#define HeightMapWidth 4
-#define HeightMapHeight 6
-#define HeightMapSize 24
+#define HeightMapWidth 5
+#define HeightMapHeight 8
+#define HeightMapSize 40
 
 extern volatile int64_t HeightMap[];
 
