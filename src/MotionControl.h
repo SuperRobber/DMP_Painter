@@ -57,6 +57,25 @@ struct DrawInstruction
     int64_t steps;
 };
 
+struct DrawInstructionOld
+{
+    int64_t index;
+    uint8_t type;
+    int8_t dirX;
+    int8_t dirY;
+    int64_t startX;
+    int64_t startY;
+    int64_t endX;
+    int64_t endY;
+    int64_t deltaX;
+    int64_t deltaY;
+    int64_t deltaXX;
+    int64_t deltaYY;
+    int64_t deltaXY;
+    int64_t error;
+    int64_t steps;
+};
+
 struct MoveInstruction
 {
     int8_t dirX;

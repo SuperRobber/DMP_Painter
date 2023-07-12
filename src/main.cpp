@@ -19,7 +19,7 @@ int32_t powerSenseData = 0;
 /// Incoming serial data can consist of either commands or drawing instructions.
 
 /// A custom serial binary protocol is used (bytes instead of chars) and
-/// used a 10byte command header with additional data if data is a
+/// consists of a 10byte command header with additional data if data is a
 /// drawing instruction.
 
 /// 10 byte header indicating a command (mode) or drawInstruction data
@@ -28,7 +28,7 @@ int32_t powerSenseData = 0;
 /// DRAW command                (10 x 0xF1)
 /// RESET command               (10 x 0xF2)
 /// MAPHEIGHT command           (10 x 0xF3)
-/// STOP command               (10 x 0xF4)
+/// STOP command                (10 x 0xF4)
 /// EOL command                 (10 x 0xF5)
 /// CLEARHEIGHT command         (10 x 0xF6)
 /// DRAWINSTRUCTION command     (10 x 0xFF)
