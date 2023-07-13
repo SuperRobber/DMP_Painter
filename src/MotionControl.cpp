@@ -381,7 +381,19 @@ FASTRUN void Draw()
         machineSpeed = normalSpeed;
         if (requestedMode == Mode::Stop)
         {
-            // To do: Check / LIFT PEN up
+            // Check / LIFT PEN up
+            if (posZ != posPenUpZ)
+            {
+                // Prepare to lift pen.
+                move.endZ = posPenUpZ;
+                move.deltaZ = abs(move.endZ - posZ);
+                move.dirZ = (posZ < move.endZ ? 1 : -1);
+                move.steps = (double)move.deltaZ * 0.5;
+                move.step = 0;
+                drawState = DrawState::MoveZ;
+                statusFunction = StatusFunction::Moving;
+                break;
+            }
             activeMode = Mode::Stop;
             drawState = DrawState::None;
             break;            
@@ -393,7 +405,19 @@ FASTRUN void Draw()
             /// Buffer is empty, Wait for EOL, or
             /// additional instructions.
 
-            // To do: Check / LIFT PEN up
+            // Check / LIFT PEN up
+            if (posZ != posPenUpZ)
+            {
+                // Prepare to lift pen.
+                move.endZ = posPenUpZ;
+                move.deltaZ = abs(move.endZ - posZ);
+                move.dirZ = (posZ < move.endZ ? 1 : -1);
+                move.steps = (double)move.deltaZ * 0.5;
+                move.step = 0;
+                drawState = DrawState::MoveZ;
+                statusFunction = StatusFunction::Moving;
+                break;
+            }
 
             if (requestedMode == Mode::EOL)
             {

@@ -111,7 +111,7 @@ void loop()
             getSerial(bytesToRead);
         }
 
-        if (activeMode == Mode::Draw && requestedMode != Mode::EOL)
+        if (activeMode == Mode::Draw && requestedMode != Mode::EOL && requestedMode != Mode::Stop)
         {
             /// Request draw instructions if there is room in the buffer. If the
             /// buffer is full, skip and wait for drawing to advance, before
