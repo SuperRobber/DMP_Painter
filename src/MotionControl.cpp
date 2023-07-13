@@ -24,7 +24,13 @@ volatile DrawState drawState = DrawState::None;
 
 volatile int64_t drawDeltaX = 0;
 volatile int64_t drawDeltaY = 0;
+volatile int64_t drawDeltaZ = 0;
+volatile int64_t drawDeltaMax = 0;
 volatile int64_t drawError = 0;
+volatile int64_t drawErrX = 0;
+volatile int64_t drawErrY = 0;
+volatile int64_t drawErrZ = 0;
+volatile uint64_t drawStep = 0;
 
 // ===================== Home algorithm. =====================
 
@@ -115,6 +121,8 @@ volatile MoveInstruction move;
 volatile int64_t posX = 0;
 volatile int64_t posY = 0;
 volatile int64_t posZ = 0;
+
+const int64_t posPenUpZ = 0;
 
 /// Hardware interrupt (PIR) TIMER triggering MachineLoop Interrupt.
 RoboTimer IRQTimer;
@@ -373,9 +381,10 @@ FASTRUN void Draw()
         machineSpeed = normalSpeed;
         if (requestedMode == Mode::Stop)
         {
-            // LIFT PEN etc
+            // To do: Check / LIFT PEN up
             activeMode = Mode::Stop;
             drawState = DrawState::None;
+            break;            
         }
 
         /// Are there active or new instructions that need to be drawn ?
@@ -383,6 +392,8 @@ FASTRUN void Draw()
         {
             /// Buffer is empty, Wait for EOL, or
             /// additional instructions.
+
+            // To do: Check / LIFT PEN up
 
             if (requestedMode == Mode::EOL)
             {
@@ -393,62 +404,128 @@ FASTRUN void Draw()
         }
         else
         {
-            /// Start a new instruction.
+            /// Start a new instruction or continue preparing to draw
             drawIndex = iBuffer[iBufferReadIndex].index;
 
             /// Prepare draw variables.
             drawError = iBuffer[iBufferReadIndex].error;
             drawDeltaX = iBuffer[iBufferReadIndex].deltaX;
             drawDeltaY = iBuffer[iBufferReadIndex].deltaY;
+            drawDeltaZ = iBuffer[iBufferReadIndex].deltaZ;
+            drawDeltaMax = max(drawDeltaZ, max(drawDeltaX, drawDeltaY));
+            drawErrX = drawDeltaMax / 2;
+            drawErrY = drawDeltaMax / 2;
+            drawErrZ = drawDeltaMax / 2;
+            drawStep = 0;
 
             /// Move first?
-            if (posX == iBuffer[iBufferReadIndex].startX && posY == iBuffer[iBufferReadIndex].startY)
+            if (posX == iBuffer[iBufferReadIndex].startX && posY == iBuffer[iBufferReadIndex].startY && posZ == iBuffer[iBufferReadIndex].startZ)
             {
                 // Already at start position, continue drawing.
                 drawState = DrawState::Draw;
                 statusFunction = StatusFunction::Drawing;
 
                 /// Continue straight on to drawing by calling Draw() again,
+                /// to smoothly connect multiple segments,
                 /// but make sure to break and beware of endless loops!!
                 Draw();
                 break;
             }
             else
             {
-                /// Set up a new movement
-                move.endX = iBuffer[iBufferReadIndex].startX;
-                move.endY = iBuffer[iBufferReadIndex].startY;
-                move.deltaX = abs(move.endX - posX);
-                move.deltaY = -abs(move.endY - posY);
-                move.dirX = (posX < move.endX ? 1 : -1);
-                move.dirY = (posY < move.endY ? 1 : -1);
-                move.error = move.deltaX + move.deltaY;
-                if (move.deltaX > -move.deltaY)
+                if (posX == iBuffer[iBufferReadIndex].startX && posY == iBuffer[iBufferReadIndex].startY)
                 {
-                    move.steps = (double)move.deltaX * 0.5;
+                    // Arrived at correct XY location, but posZ is not at startPosition.
+                    // Prepare to move pen to Z start Position.
+                    move.endZ = iBuffer[iBufferReadIndex].startZ;
+                    move.deltaZ = abs(move.endZ - posZ);
+                    move.dirZ = (posZ < move.endZ ? 1 : -1);
+                    move.steps = (double)move.deltaZ * 0.5;
+                    move.step = 0;
+                    drawState = DrawState::MoveZ;
+                    statusFunction = StatusFunction::Moving;
+                    break;
                 }
                 else
                 {
-                    move.steps = (double)move.deltaY * -0.5;
+                    // Not at correct location yet. Is pen up ?
+                    if (posZ == posPenUpZ)
+                    {
+                        // Pen is up.
+                        // Set up a new movement to go to XY Location
+                        move.endX = iBuffer[iBufferReadIndex].startX;
+                        move.endY = iBuffer[iBufferReadIndex].startY;
+                        move.deltaX = abs(move.endX - posX);
+                        move.deltaY = -abs(move.endY - posY);
+                        move.dirX = (posX < move.endX ? 1 : -1);
+                        move.dirY = (posY < move.endY ? 1 : -1);
+                        move.error = move.deltaX + move.deltaY;
+                        if (move.deltaX > -move.deltaY)
+                        {
+                            move.steps = (double)move.deltaX * 0.5;
+                        }
+                        else
+                        {
+                            move.steps = (double)move.deltaY * -0.5;
+                        }
+                        move.step = 0;
+                        drawState = DrawState::MoveXY;
+                        statusFunction = StatusFunction::Moving;
+                        break;
+                    }
+                    else
+                    {
+                        // Prepare to lift pen.
+                        move.endZ = posPenUpZ;
+                        move.deltaZ = abs(move.endZ - posZ);
+                        move.dirZ = (posZ < move.endZ ? 1 : -1);
+                        move.steps = (double)move.deltaZ * 0.5;
+                        move.step = 0;
+                        drawState = DrawState::MoveZ;
+                        statusFunction = StatusFunction::Moving;
+                        break;
+                    }
                 }
-                move.step = 0;
-                drawState = DrawState::Move;
-                statusFunction = StatusFunction::Moving;
-
-                /// No urgency to continue straight on need to move // lift pen etc
-                break;
             }
         }
         break;
     }
+
     /// ===============================================
-    case (DrawState::Move):
+    case (DrawState::MoveZ):
+    {
+        StepMotors();
+
+        if (posZ == move.endZ)
+        {
+            // Arrived at Z destination
+            drawState = DrawState::Choose;
+            statusFunction = StatusFunction::Waiting;
+
+            /// No urgency to continue straight on need to move // lift pen etc
+            break;
+        }
+
+        if (posZ != move.endZ)
+        {
+            StepZ(move.dirZ);
+        }
+
+        double speedRamp = min(-fabs(move.steps - move.step) + move.steps, 12000.0) / 400.0;
+        machineSpeed = max(7.0 + 30.0 - speedRamp, 7.0);
+        move.step++;
+        SetDirectionsAndLimits();
+        break;
+    }
+
+    /// ===============================================
+    case (DrawState::MoveXY):
     {
         StepMotors();
 
         if (posX == move.endX && posY == move.endY)
         {
-            // At the start position, let's draw now.
+            // Arrived at XY destination
             drawState = DrawState::Choose;
             statusFunction = StatusFunction::Waiting;
 
@@ -497,13 +574,14 @@ FASTRUN void Draw()
     {
         StepMotors();
 
-        if (posX == iBuffer[iBufferReadIndex].endX && posY == iBuffer[iBufferReadIndex].endY)
+        if (posX == iBuffer[iBufferReadIndex].endX && posY == iBuffer[iBufferReadIndex].endY && posZ == iBuffer[iBufferReadIndex].endZ)
         {
             /// Done drawing current line!
             iBufferReadIndex = (iBufferReadIndex + 1) & 63;
             drawState = DrawState::Choose;
 
             /// Continue straight on to drawing by calling Draw() again,
+            /// to smoothly connect multiple segments,
             /// but make sure to break and beware of endless loops!!
             Draw();
             break;
@@ -511,19 +589,52 @@ FASTRUN void Draw()
 
         if (iBuffer[iBufferReadIndex].type == 1)
         {
-            CalculateStraightLine();
+            CalculateStraightLine3D();
         }
 
         if (iBuffer[iBufferReadIndex].type == 2)
         {
-            CalculateQuadBezier();
+            CalculateQuadBezier3D();
         }
 
-        SetDirectionsAndLimits();
+        // todo:: use precalculated steps
         machineSpeed = drawSpeed;
+        SetDirectionsAndLimits();
+
+        drawStep++;
         break;
     }
     }
+}
+
+FASTRUN void CalculateStraightLine3D()
+{
+    // Draw Straight Line
+
+    drawErrX -= drawDeltaX;
+    if (drawErrX < 0)
+    {
+        drawErrX += drawDeltaMax;
+        StepX(iBuffer[iBufferReadIndex].dirX);
+    }
+
+    drawErrY -= drawDeltaY;
+    if (drawErrY < 0)
+    {
+        drawErrY += drawDeltaMax;
+        StepY(iBuffer[iBufferReadIndex].dirY);
+    }
+
+    drawErrZ -= drawDeltaZ;
+    if (drawErrZ < 0)
+    {
+        drawErrZ += drawDeltaMax;
+        StepZ(iBuffer[iBufferReadIndex].dirZ);
+    }
+}
+
+FASTRUN void CalculateQuadBezier3D()
+{
 }
 
 FASTRUN void CalculateStraightLine()
@@ -799,8 +910,8 @@ FASTRUN void MapHeight()
                 }
 
                 /// Ready to move to the correct position
-                move.endX = (XMAX / (HeightMapWidth-1)) * (heightMapIndex % HeightMapWidth);
-                move.endY = (YMAX / (HeightMapHeight-1)) * (heightMapIndex / HeightMapWidth);
+                move.endX = (XMAX / (HeightMapWidth - 1)) * (heightMapIndex % HeightMapWidth);
+                move.endY = (YMAX / (HeightMapHeight - 1)) * (heightMapIndex / HeightMapWidth);
 
                 if (posX == move.endX && posY == move.endY)
                 {
@@ -1098,6 +1209,14 @@ FASTRUN void SetDirectionsAndLimits()
         digitalWriteFast(M4_dirPin, HIGH); // Motor reverse mount
         if (switches[swZStart].pressed)
             stepM4 = false;
+    }
+
+    // Important if Z-limit has hit the deck, do not allow any movement in XY direction
+    if (switches[swZEnd].pressed)
+    {
+        stepM1 = false;
+        stepM2 = false;
+        stepM3 = false;
     }
 }
 

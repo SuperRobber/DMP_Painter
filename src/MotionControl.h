@@ -42,18 +42,27 @@ struct DrawInstruction
 {
     int64_t index;
     uint8_t type;
+    uint8_t acceleration;
     int8_t dirX;
     int8_t dirY;
+    int8_t dirZ;
+    uint8_t projection;
     int64_t startX;
     int64_t startY;
+    int64_t startZ;
     int64_t endX;
     int64_t endY;
+    int64_t endZ;
     int64_t deltaX;
     int64_t deltaY;
+    int64_t deltaZ;
     int64_t deltaXX;
     int64_t deltaYY;
     int64_t deltaXY;
+    int64_t deltaXZ;
+    int64_t deltaYZ;
     int64_t error;
+    int64_t errorZ;
     int64_t steps;
 };
 
@@ -77,6 +86,27 @@ struct DrawInstructionOld
 };
 
 struct MoveInstruction
+{
+    int8_t dirX;
+    int8_t dirY;
+    int8_t dirZ;
+    int64_t endX;
+    int64_t endY;
+    int64_t endZ;
+    int64_t deltaX;
+    int64_t deltaY;
+    int64_t deltaZ;
+    int64_t deltaMax;
+    int64_t error;
+    int64_t errorX;
+    int64_t errorY;
+    int64_t errorZ;
+    double steps;
+    double step;
+};
+
+
+struct MoveInstructionOld
 {
     int8_t dirX;
     int8_t dirY;
@@ -111,7 +141,8 @@ enum class DrawState
 {
     None,
     Choose,
-    Move,
+    MoveXY,
+    MoveZ,
     Draw
 };
 
@@ -269,9 +300,6 @@ FASTRUN void MachineLoop();
 // FASTRUN void CalculateHomeSteps();
 
 /// @brief The drawing algorithm.
-FASTRUN void CalculateDrawSteps();
-
-/// @brief The drawing algorithm.
 FASTRUN void Draw();
 
 /// @brief The homing algorithm.
@@ -315,9 +343,11 @@ FASTRUN void setCurrent(int cur);
 
 /// @brief Draw / Step in a straight Line
 FASTRUN void CalculateStraightLine();
+FASTRUN void CalculateStraightLine3D();
 
 /// @brief Draw / Step along a Quadratic Bezier
 FASTRUN void CalculateQuadBezier();
+FASTRUN void CalculateQuadBezier3D();
 
 /// ===================== FUNCTIONS not part of the interrupt loop =====================
 
