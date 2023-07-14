@@ -24,10 +24,17 @@
 #define XMAX 1100000 // total X steps +- 1127620 | margin (13581)
 #define YMAX 1568000 // total Y steps +- 1595169 | margin (13581)
 
-/// @brief Union to convconsole.log('ert int64 to byteArray.
+/// @brief Union to convert int64 to byteArray.
 union byte64
 {
     int64_t value;
+    byte bytes[8];
+};
+
+/// @brief Union to convert uint64 to byteArray.
+union ubyte64
+{
+    uint64_t value;
     byte bytes[8];
 };
 
@@ -63,7 +70,7 @@ struct DrawInstruction
     int64_t deltaYZ;
     int64_t error;
     int64_t errorZ;
-    int64_t steps;
+    double steps;
 };
 
 struct DrawInstructionOld

@@ -30,7 +30,8 @@ volatile int64_t drawError = 0;
 volatile int64_t drawErrX = 0;
 volatile int64_t drawErrY = 0;
 volatile int64_t drawErrZ = 0;
-volatile uint64_t drawStep = 0;
+volatile double drawStep = 0;
+
 
 // ===================== Home algorithm. =====================
 
@@ -128,10 +129,14 @@ const int64_t posPenUpZ = 0;
 RoboTimer IRQTimer;
 
 /// Interrupt iteration times (speeds).
-// const float moveSpeed = 15.0f;
-const float drawSpeed = 15.0f;
+const float moveSpeed = 7.5f;
+const float drawSpeed = 7.5f;
 const float homeSpeed = 100.0f;
 const float normalSpeed = 100.0f;
+
+// acceleration
+const double rampFactor = 200.0;
+const double rampRange = 50.0;
 
 /// @brief Interrupt iteration time (speed).
 /// Interrupt type is always set to machineSpeed,
@@ -354,6 +359,8 @@ FASTRUN void MachineLoop()
         cycles = (uint32_t)(150.0f * machineSpeed - 0.5f);
     }
 
+    // cycles = (uint32_t)(150.0f * machineSpeed - 0.5f);
+
     IRQTimer.unsafe_update(cycles);
 
     /// Update the debounce time tracker.
@@ -386,9 +393,8 @@ FASTRUN void Draw()
             {
                 // Prepare to lift pen.
                 move.endZ = posPenUpZ;
-                move.deltaZ = abs(move.endZ - posZ);
                 move.dirZ = (posZ < move.endZ ? 1 : -1);
-                move.steps = (double)move.deltaZ * 0.5;
+                move.steps = (double) abs(move.endZ - posZ);
                 move.step = 0;
                 drawState = DrawState::MoveZ;
                 statusFunction = StatusFunction::Moving;
@@ -396,7 +402,7 @@ FASTRUN void Draw()
             }
             activeMode = Mode::Stop;
             drawState = DrawState::None;
-            break;            
+            break;
         }
 
         /// Are there active or new instructions that need to be drawn ?
@@ -410,9 +416,8 @@ FASTRUN void Draw()
             {
                 // Prepare to lift pen.
                 move.endZ = posPenUpZ;
-                move.deltaZ = abs(move.endZ - posZ);
                 move.dirZ = (posZ < move.endZ ? 1 : -1);
-                move.steps = (double)move.deltaZ * 0.5;
+                move.steps = (double) abs(move.endZ - posZ);
                 move.step = 0;
                 drawState = DrawState::MoveZ;
                 statusFunction = StatusFunction::Moving;
@@ -431,21 +436,23 @@ FASTRUN void Draw()
             /// Start a new instruction or continue preparing to draw
             drawIndex = iBuffer[iBufferReadIndex].index;
 
-            /// Prepare draw variables.
-            drawError = iBuffer[iBufferReadIndex].error;
-            drawDeltaX = iBuffer[iBufferReadIndex].deltaX;
-            drawDeltaY = iBuffer[iBufferReadIndex].deltaY;
-            drawDeltaZ = iBuffer[iBufferReadIndex].deltaZ;
-            drawDeltaMax = max(drawDeltaZ, max(drawDeltaX, drawDeltaY));
-            drawErrX = drawDeltaMax / 2;
-            drawErrY = drawDeltaMax / 2;
-            drawErrZ = drawDeltaMax / 2;
-            drawStep = 0;
 
             /// Move first?
             if (posX == iBuffer[iBufferReadIndex].startX && posY == iBuffer[iBufferReadIndex].startY && posZ == iBuffer[iBufferReadIndex].startZ)
             {
                 // Already at start position, continue drawing.
+
+                /// Prepare draw variables.
+                drawError = iBuffer[iBufferReadIndex].error;
+                drawDeltaX = iBuffer[iBufferReadIndex].deltaX;
+                drawDeltaY = iBuffer[iBufferReadIndex].deltaY;
+                drawDeltaZ = iBuffer[iBufferReadIndex].deltaZ;
+                drawDeltaMax = max(drawDeltaZ, max(drawDeltaX, drawDeltaY));
+                drawErrX = drawDeltaMax / 2;
+                drawErrY = drawDeltaMax / 2;
+                drawErrZ = drawDeltaMax / 2;
+                drawStep = 0.0;
+
                 drawState = DrawState::Draw;
                 statusFunction = StatusFunction::Drawing;
 
@@ -462,9 +469,8 @@ FASTRUN void Draw()
                     // Arrived at correct XY location, but posZ is not at startPosition.
                     // Prepare to move pen to Z start Position.
                     move.endZ = iBuffer[iBufferReadIndex].startZ;
-                    move.deltaZ = abs(move.endZ - posZ);
                     move.dirZ = (posZ < move.endZ ? 1 : -1);
-                    move.steps = (double)move.deltaZ * 0.5;
+                    move.steps = (double) abs(move.endZ - posZ);
                     move.step = 0;
                     drawState = DrawState::MoveZ;
                     statusFunction = StatusFunction::Moving;
@@ -486,11 +492,11 @@ FASTRUN void Draw()
                         move.error = move.deltaX + move.deltaY;
                         if (move.deltaX > -move.deltaY)
                         {
-                            move.steps = (double)move.deltaX * 0.5;
+                            move.steps = (double)move.deltaX;
                         }
                         else
                         {
-                            move.steps = (double)move.deltaY * -0.5;
+                            move.steps = -(double)move.deltaY;
                         }
                         move.step = 0;
                         drawState = DrawState::MoveXY;
@@ -501,9 +507,8 @@ FASTRUN void Draw()
                     {
                         // Prepare to lift pen.
                         move.endZ = posPenUpZ;
-                        move.deltaZ = abs(move.endZ - posZ);
                         move.dirZ = (posZ < move.endZ ? 1 : -1);
-                        move.steps = (double)move.deltaZ * 0.5;
+                        move.steps = (double) abs(move.endZ - posZ);
                         move.step = 0;
                         drawState = DrawState::MoveZ;
                         statusFunction = StatusFunction::Moving;
@@ -523,6 +528,11 @@ FASTRUN void Draw()
         if (posZ == move.endZ)
         {
             // Arrived at Z destination
+
+            Serial.print(move.steps);
+            Serial.print(" / ");
+            Serial.println(move.step);
+
             drawState = DrawState::Choose;
             statusFunction = StatusFunction::Waiting;
 
@@ -535,9 +545,11 @@ FASTRUN void Draw()
             StepZ(move.dirZ);
         }
 
-        double speedRamp = min(-fabs(move.steps - move.step) + move.steps, 12000.0) / 400.0;
-        machineSpeed = max(7.0 + 30.0 - speedRamp, 7.0);
+        double ramp = -fabs(move.steps * 0.5 - move.step) + move.steps * 0.5;
+        double speedRamp = (ramp / (ramp + rampFactor)) * rampRange;
+        machineSpeed = max(moveSpeed + rampRange - speedRamp, moveSpeed);
         move.step++;
+
         SetDirectionsAndLimits();
         break;
     }
@@ -550,6 +562,11 @@ FASTRUN void Draw()
         if (posX == move.endX && posY == move.endY)
         {
             // Arrived at XY destination
+
+            Serial.print(move.steps);
+            Serial.print(" / ");
+            Serial.println(move.step);
+
             drawState = DrawState::Choose;
             statusFunction = StatusFunction::Waiting;
 
@@ -587,9 +604,11 @@ FASTRUN void Draw()
                 StepY(move.dirY);
             }
         }
-        double speedRamp = min(-fabs(move.steps - move.step) + move.steps, 12000.0) / 400.0;
-        machineSpeed = max(7.0 + 30.0 - speedRamp, 7.0);
+        double ramp = -fabs(move.steps * 0.5 - move.step) + move.steps * 0.5;
+        double speedRamp = (ramp / (ramp + rampFactor)) * rampRange;
+        machineSpeed = max(moveSpeed + rampRange - speedRamp, moveSpeed);
         move.step++;
+
         SetDirectionsAndLimits();
         break;
     }
@@ -601,6 +620,11 @@ FASTRUN void Draw()
         if (posX == iBuffer[iBufferReadIndex].endX && posY == iBuffer[iBufferReadIndex].endY && posZ == iBuffer[iBufferReadIndex].endZ)
         {
             /// Done drawing current line!
+
+            Serial.print(iBuffer[iBufferReadIndex].steps);
+            Serial.print(" / ");
+            Serial.println(drawStep);
+
             iBufferReadIndex = (iBufferReadIndex + 1) & 63;
             drawState = DrawState::Choose;
 
@@ -621,11 +645,31 @@ FASTRUN void Draw()
             CalculateQuadBezier3D();
         }
 
-        // todo:: use precalculated steps
-        machineSpeed = drawSpeed;
-        SetDirectionsAndLimits();
+        // ramp goes from drawspeed+50 - drawspeed(max)
+        if (iBuffer[iBufferReadIndex].acceleration == 0) // single
+        {
+            double ramp = -fabs(iBuffer[iBufferReadIndex].steps*0.5 - drawStep) + iBuffer[iBufferReadIndex].steps*0.5;
+            double speedRamp = (ramp / (ramp + rampFactor))*rampRange;
+            machineSpeed = max(drawSpeed + rampRange - speedRamp, drawSpeed);
+        }
 
-        drawStep++;
+        if (iBuffer[iBufferReadIndex].acceleration == 1) // start500.0
+        {
+            machineSpeed = drawSpeed;
+        }
+        if (iBuffer[iBufferReadIndex].acceleration == 2) // continue
+        {
+            machineSpeed = drawSpeed;
+        }
+        if (iBuffer[iBufferReadIndex].acceleration == 3) // stop
+        {
+            machineSpeed = drawSpeed;
+        }
+
+        SetDirectionsAndLimits();
+        if (drawStep < iBuffer[iBufferReadIndex].steps)
+            drawStep++;
+
         break;
     }
     }
@@ -992,11 +1036,11 @@ FASTRUN void MapHeight()
         move.error = move.deltaX + move.deltaY;
         if (move.deltaX > -move.deltaY)
         {
-            move.steps = (double)move.deltaX * 0.5;
+            move.steps = (double)move.deltaX;
         }
         else
         {
-            move.steps = (double)move.deltaY * -0.5;
+            move.steps = -(double)move.deltaY;
         }
         move.step = 0;
         mapHeightState = MapHeightState::MoveXY;
@@ -1042,7 +1086,7 @@ FASTRUN void MapHeight()
                     StepY(move.dirY);
                 }
             }
-            double speedRamp = min(-fabs(move.steps - move.step) + move.steps, 12000.0) / 400.0;
+            double speedRamp = min(-fabs(move.steps*0.5 - move.step) + move.steps*0.5, 12000.0) / 400.0;
             machineSpeed = max(7.0 + 30.0 - speedRamp, 7.0);
             move.step++;
         }

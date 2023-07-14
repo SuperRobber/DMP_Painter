@@ -405,9 +405,10 @@ void getSerial(int bytesToRead)
 
                             /// A byte64 union is used to convert 8 bytes to int64.
                             byte64 b64 = {};
+                            ubyte64 u64 = {};
 
-                            memcpy(b64.bytes, serialMessageData, 8);
-                            iBuffer[iBufferWriteIndex].index = b64.value;
+                            memcpy(u64.bytes, serialMessageData, 8);
+                            iBuffer[iBufferWriteIndex].index = u64.value;
                             iBuffer[iBufferWriteIndex].type = serialMessageData[9];
                             iBuffer[iBufferWriteIndex].acceleration = serialMessageData[11];
                             iBuffer[iBufferWriteIndex].dirX = serialMessageData[13];
@@ -446,8 +447,8 @@ void getSerial(int bytesToRead)
                             iBuffer[iBufferWriteIndex].error = b64.value;
                             memcpy(b64.bytes, serialMessageData + 156, 8);
                             iBuffer[iBufferWriteIndex].errorZ = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 165, 8);
-                            iBuffer[iBufferWriteIndex].steps = b64.value;
+                            memcpy(u64.bytes, serialMessageData + 165, 8);
+                            iBuffer[iBufferWriteIndex].steps = (double)u64.value;
 
                             // Increment the bufferWriteIndex for an upcoming instruction.
                             iBufferWriteIndex = (iBufferWriteIndex + 1) & 63;
