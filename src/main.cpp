@@ -438,16 +438,22 @@ void getSerial(int bytesToRead)
                             memcpy(b64.bytes, serialMessageData + 111, 8);
                             iBuffer[iBufferWriteIndex].deltaYY = b64.value;
                             memcpy(b64.bytes, serialMessageData + 120, 8);
-                            iBuffer[iBufferWriteIndex].deltaXY = b64.value;
+                            iBuffer[iBufferWriteIndex].deltaZZ = b64.value;
                             memcpy(b64.bytes, serialMessageData + 129, 8);
-                            iBuffer[iBufferWriteIndex].deltaXZ = b64.value;
+                            iBuffer[iBufferWriteIndex].deltaXY = b64.value;
                             memcpy(b64.bytes, serialMessageData + 138, 8);
-                            iBuffer[iBufferWriteIndex].deltaYZ = b64.value;
+                            iBuffer[iBufferWriteIndex].deltaXZ = b64.value;
                             memcpy(b64.bytes, serialMessageData + 147, 8);
-                            iBuffer[iBufferWriteIndex].error = b64.value;
+                            iBuffer[iBufferWriteIndex].deltaYZ = b64.value;
                             memcpy(b64.bytes, serialMessageData + 156, 8);
+                            iBuffer[iBufferWriteIndex].error = b64.value;
+                            memcpy(b64.bytes, serialMessageData + 165, 8);
+                            iBuffer[iBufferWriteIndex].errorX = b64.value;
+                            memcpy(b64.bytes, serialMessageData + 174, 8);
+                            iBuffer[iBufferWriteIndex].errorY = b64.value;
+                            memcpy(b64.bytes, serialMessageData + 183, 8);
                             iBuffer[iBufferWriteIndex].errorZ = b64.value;
-                            memcpy(u64.bytes, serialMessageData + 165, 8);
+                            memcpy(u64.bytes, serialMessageData + 192, 8);
                             iBuffer[iBufferWriteIndex].steps = (double)u64.value;
 
                             // Increment the bufferWriteIndex for an upcoming instruction.

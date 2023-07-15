@@ -65,10 +65,13 @@ struct DrawInstruction
     int64_t deltaZ;
     int64_t deltaXX;
     int64_t deltaYY;
+    int64_t deltaZZ;
     int64_t deltaXY;
     int64_t deltaXZ;
     int64_t deltaYZ;
     int64_t error;
+    int64_t errorX;
+    int64_t errorY;
     int64_t errorZ;
     double steps;
 };
@@ -354,7 +357,9 @@ FASTRUN void CalculateStraightLine3D();
 
 /// @brief Draw / Step along a Quadratic Bezier
 FASTRUN void CalculateQuadBezier();
-FASTRUN void CalculateQuadBezier3D();
+FASTRUN void CalculateQuadBezier3DXY();
+FASTRUN void CalculateQuadBezier3DXZ();
+FASTRUN void CalculateQuadBezier3DYZ();
 
 /// ===================== FUNCTIONS not part of the interrupt loop =====================
 

@@ -130,7 +130,7 @@ RoboTimer IRQTimer;
 
 /// Interrupt iteration times (speeds).
 const float moveSpeed = 7.5f;
-const float drawSpeed = 7.5f;
+const float drawSpeed = 17.5f;
 const float homeSpeed = 100.0f;
 const float normalSpeed = 100.0f;
 
@@ -642,15 +642,28 @@ FASTRUN void Draw()
 
         if (iBuffer[iBufferReadIndex].type == 2)
         {
-            CalculateQuadBezier3D();
+            if (iBuffer[iBufferReadIndex].projection == 1)
+            {
+                CalculateQuadBezier3DXY();
+            }
+
+            if (iBuffer[iBufferReadIndex].projection == 2)
+            {
+                CalculateQuadBezier3DXZ();             
+            }
+
+            if (iBuffer[iBufferReadIndex].projection == 3)
+            {               
+                CalculateQuadBezier3DYZ();             
+            }
         }
 
-        // ramp goes from drawspeed+50 - drawspeed(max)
+        double ramp = -fabs(iBuffer[iBufferReadIndex].steps*0.5 - drawStep) + iBuffer[iBufferReadIndex].steps*0.5;
+        double speedRamp = (ramp / (ramp + rampFactor))*rampRange;
+        machineSpeed = max(drawSpeed + rampRange - speedRamp, drawSpeed);
+
         if (iBuffer[iBufferReadIndex].acceleration == 0) // single
         {
-            double ramp = -fabs(iBuffer[iBufferReadIndex].steps*0.5 - drawStep) + iBuffer[iBufferReadIndex].steps*0.5;
-            double speedRamp = (ramp / (ramp + rampFactor))*rampRange;
-            machineSpeed = max(drawSpeed + rampRange - speedRamp, drawSpeed);
         }
 
         if (iBuffer[iBufferReadIndex].acceleration == 1) // start500.0
@@ -701,8 +714,19 @@ FASTRUN void CalculateStraightLine3D()
     }
 }
 
-FASTRUN void CalculateQuadBezier3D()
+FASTRUN void CalculateQuadBezier3DXY()
 {
+
+}
+
+FASTRUN void CalculateQuadBezier3DXZ()
+{
+
+}
+
+FASTRUN void CalculateQuadBezier3DYZ()
+{
+
 }
 
 FASTRUN void CalculateStraightLine()
