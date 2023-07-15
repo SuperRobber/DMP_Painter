@@ -1,15 +1,10 @@
 /// TODO:
-///
-/// 1. Better SLEEP FUNCTION
-/// SetCurrent() calls setTMC262Register from inside interrupt.
-/// (requestAwake ? is Awake ? some shared flags ?)
-/// Make sure we do not set 'in motion'.
+
+/// 1. CHECK / REVISIT Motor status, for possible breaking errors that need to halt entire machine.
+
 ///
 /// 2. Add status from M4 and M5
-///
-/// 3. refactor Draw StateMachine
-///
-/// 4. check calculate straightline ? not setting delta
+
 ///
 /// 5. Separate Configuration // Hardware setup to another file ?
 ///
@@ -73,26 +68,9 @@ struct DrawInstruction
     int64_t errorX;
     int64_t errorY;
     int64_t errorZ;
+    int64_t deltaMax;
     double steps;
-};
-
-struct DrawInstructionOld
-{
-    int64_t index;
-    uint8_t type;
-    int8_t dirX;
-    int8_t dirY;
-    int64_t startX;
-    int64_t startY;
-    int64_t endX;
-    int64_t endY;
-    int64_t deltaX;
-    int64_t deltaY;
-    int64_t deltaXX;
-    int64_t deltaYY;
-    int64_t deltaXY;
-    int64_t error;
-    int64_t steps;
+    double step;
 };
 
 struct MoveInstruction
@@ -105,29 +83,11 @@ struct MoveInstruction
     int64_t endZ;
     int64_t deltaX;
     int64_t deltaY;
-    int64_t deltaZ;
-    int64_t deltaMax;
-    int64_t error;
-    int64_t errorX;
-    int64_t errorY;
-    int64_t errorZ;
-    double steps;
-    double step;
-};
-
-
-struct MoveInstructionOld
-{
-    int8_t dirX;
-    int8_t dirY;
-    int64_t endX;
-    int64_t endY;
-    int64_t deltaX;
-    int64_t deltaY;
     int64_t error;
     double steps;
     double step;
 };
+
 
 // ===================== Machines task switching & State Machines =====================
 

@@ -22,15 +22,15 @@ volatile DrawState drawState = DrawState::None;
 // volatile bool moving = true;
 // volatile bool lineStarted = false;
 
-volatile int64_t drawDeltaX = 0;
-volatile int64_t drawDeltaY = 0;
-volatile int64_t drawDeltaZ = 0;
-volatile int64_t drawDeltaMax = 0;
-volatile int64_t drawError = 0;
-volatile int64_t drawErrX = 0;
-volatile int64_t drawErrY = 0;
-volatile int64_t drawErrZ = 0;
-volatile double drawStep = 0;
+// volatile int64_t drawDeltaX = 0;
+// volatile int64_t drawDeltaY = 0;
+// volatile int64_t drawDeltaZ = 0;
+// volatile int64_t drawDeltaMax = 0;
+// volatile int64_t drawError = 0;
+// volatile int64_t drawErrX = 0;
+// volatile int64_t drawErrY = 0;
+// volatile int64_t drawErrZ = 0;
+// volatile double drawStep = 0;
 
 
 // ===================== Home algorithm. =====================
@@ -118,6 +118,7 @@ TMC262::STATUS status_M3 = {0};
 // extern volatile Stepper motors[4];
 
 volatile MoveInstruction move;
+volatile DrawInstruction draw;
 
 volatile int64_t posX = 0;
 volatile int64_t posY = 0;
@@ -135,8 +136,8 @@ const float homeSpeed = 100.0f;
 const float normalSpeed = 100.0f;
 
 // acceleration
-const double rampFactor = 200.0;
-const double rampRange = 50.0;
+const double accelerationFactor = 200.0;
+const double accelerationRange = 50.0;
 
 /// @brief Interrupt iteration time (speed).
 /// Interrupt type is always set to machineSpeed,
@@ -442,16 +443,19 @@ FASTRUN void Draw()
             {
                 // Already at start position, continue drawing.
 
-                /// Prepare draw variables.
-                drawError = iBuffer[iBufferReadIndex].error;
-                drawDeltaX = iBuffer[iBufferReadIndex].deltaX;
-                drawDeltaY = iBuffer[iBufferReadIndex].deltaY;
-                drawDeltaZ = iBuffer[iBufferReadIndex].deltaZ;
-                drawDeltaMax = max(drawDeltaZ, max(drawDeltaX, drawDeltaY));
-                drawErrX = drawDeltaMax / 2;
-                drawErrY = drawDeltaMax / 2;
-                drawErrZ = drawDeltaMax / 2;
-                drawStep = 0.0;
+                draw.error = iBuffer[iBufferReadIndex].error;
+                draw.deltaX = iBuffer[iBufferReadIndex].deltaX;
+                draw.deltaY = iBuffer[iBufferReadIndex].deltaY;
+                draw.deltaZ = iBuffer[iBufferReadIndex].deltaZ;
+                draw.step = 0.0;
+
+                if (iBuffer[iBufferReadIndex].type==1)
+                {
+                    draw.deltaMax = max(draw.deltaZ, max(draw.deltaX, draw.deltaY));
+                    draw.errorX = draw.deltaMax / 2;
+                    draw.errorY = draw.deltaMax / 2;
+                    draw.errorZ = draw.deltaMax / 2;
+                }
 
                 drawState = DrawState::Draw;
                 statusFunction = StatusFunction::Drawing;
@@ -529,9 +533,9 @@ FASTRUN void Draw()
         {
             // Arrived at Z destination
 
-            Serial.print(move.steps);
-            Serial.print(" / ");
-            Serial.println(move.step);
+            // Serial.print(move.steps);
+            // Serial.print(" / ");
+            // Serial.println(move.step);
 
             drawState = DrawState::Choose;
             statusFunction = StatusFunction::Waiting;
@@ -545,9 +549,8 @@ FASTRUN void Draw()
             StepZ(move.dirZ);
         }
 
-        double ramp = -fabs(move.steps * 0.5 - move.step) + move.steps * 0.5;
-        double speedRamp = (ramp / (ramp + rampFactor)) * rampRange;
-        machineSpeed = max(moveSpeed + rampRange - speedRamp, moveSpeed);
+        double t = -fabs(move.steps * 0.5 - move.step) + move.steps * 0.5;
+        machineSpeed = max(moveSpeed + accelerationRange - (t / (t + accelerationFactor)) * accelerationRange, moveSpeed);
         move.step++;
 
         SetDirectionsAndLimits();
@@ -563,9 +566,9 @@ FASTRUN void Draw()
         {
             // Arrived at XY destination
 
-            Serial.print(move.steps);
-            Serial.print(" / ");
-            Serial.println(move.step);
+            // Serial.print(move.steps);
+            // Serial.print(" / ");
+            // Serial.println(move.step);
 
             drawState = DrawState::Choose;
             statusFunction = StatusFunction::Waiting;
@@ -604,9 +607,8 @@ FASTRUN void Draw()
                 StepY(move.dirY);
             }
         }
-        double ramp = -fabs(move.steps * 0.5 - move.step) + move.steps * 0.5;
-        double speedRamp = (ramp / (ramp + rampFactor)) * rampRange;
-        machineSpeed = max(moveSpeed + rampRange - speedRamp, moveSpeed);
+        double t = -fabs(move.steps * 0.5 - move.step) + move.steps * 0.5;
+        machineSpeed = max(moveSpeed + accelerationRange - (t / (t + accelerationFactor)) * accelerationRange, moveSpeed);
         move.step++;
 
         SetDirectionsAndLimits();
@@ -621,9 +623,9 @@ FASTRUN void Draw()
         {
             /// Done drawing current line!
 
-            Serial.print(iBuffer[iBufferReadIndex].steps);
-            Serial.print(" / ");
-            Serial.println(drawStep);
+            // Serial.print(iBuffer[iBufferReadIndex].steps);
+            // Serial.print(" / ");
+            // Serial.println(drawStep);
 
             iBufferReadIndex = (iBufferReadIndex + 1) & 63;
             drawState = DrawState::Choose;
@@ -658,30 +660,25 @@ FASTRUN void Draw()
             }
         }
 
-        double ramp = -fabs(iBuffer[iBufferReadIndex].steps*0.5 - drawStep) + iBuffer[iBufferReadIndex].steps*0.5;
-        double speedRamp = (ramp / (ramp + rampFactor))*rampRange;
-        machineSpeed = max(drawSpeed + rampRange - speedRamp, drawSpeed);
+        double t = -fabs(iBuffer[iBufferReadIndex].steps*0.5 - draw.step) + iBuffer[iBufferReadIndex].steps*0.5;
+        machineSpeed = max(drawSpeed + accelerationRange - (t / (t + accelerationFactor))*accelerationRange, drawSpeed);
 
         if (iBuffer[iBufferReadIndex].acceleration == 0) // single
         {
         }
-
-        if (iBuffer[iBufferReadIndex].acceleration == 1) // start500.0
+        if (iBuffer[iBufferReadIndex].acceleration == 1) // start
         {
-            machineSpeed = drawSpeed;
         }
         if (iBuffer[iBufferReadIndex].acceleration == 2) // continue
         {
-            machineSpeed = drawSpeed;
         }
         if (iBuffer[iBufferReadIndex].acceleration == 3) // stop
         {
-            machineSpeed = drawSpeed;
         }
 
         SetDirectionsAndLimits();
-        if (drawStep < iBuffer[iBufferReadIndex].steps)
-            drawStep++;
+        if (draw.step < iBuffer[iBufferReadIndex].steps)
+            draw.step++;
 
         break;
     }
@@ -692,24 +689,24 @@ FASTRUN void CalculateStraightLine3D()
 {
     // Draw Straight Line
 
-    drawErrX -= drawDeltaX;
-    if (drawErrX < 0)
+    draw.errorX -= draw.deltaX;
+    if (draw.errorX < 0)
     {
-        drawErrX += drawDeltaMax;
+        draw.errorX += draw.deltaMax;
         StepX(iBuffer[iBufferReadIndex].dirX);
     }
 
-    drawErrY -= drawDeltaY;
-    if (drawErrY < 0)
+    draw.errorY -= draw.deltaY;
+    if (draw.errorY < 0)
     {
-        drawErrY += drawDeltaMax;
+        draw.errorY += draw.deltaMax;
         StepY(iBuffer[iBufferReadIndex].dirY);
     }
 
-    drawErrZ -= drawDeltaZ;
-    if (drawErrZ < 0)
+    draw.errorZ -= draw.deltaMax;
+    if (draw.errorZ < 0)
     {
-        drawErrZ += drawDeltaMax;
+        draw.errorZ += draw.deltaMax;
         StepZ(iBuffer[iBufferReadIndex].dirZ);
     }
 }
@@ -729,6 +726,7 @@ FASTRUN void CalculateQuadBezier3DYZ()
 
 }
 
+/*
 FASTRUN void CalculateStraightLine()
 {
     // Draw Straight Line
@@ -800,6 +798,7 @@ FASTRUN void CalculateQuadBezier()
         }
     }
 }
+*/
 
 FASTRUN void Home()
 {
