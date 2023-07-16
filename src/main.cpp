@@ -31,6 +31,7 @@ int32_t powerSenseData = 0;
 /// STOP command                (10 x 0xF4)
 /// EOL command                 (10 x 0xF5)
 /// CLEARHEIGHT command         (10 x 0xF6)
+/// ZERO command         (10 x 0xF7)
 /// DRAWINSTRUCTION command     (10 x 0xFF)
 
 /// DrawInstruction:
@@ -48,6 +49,7 @@ enum command
     BYTE_STOP = 0xF4,
     BYTE_EOL = 0xF5,
     BYTE_CLEARHEIGHT = 0xF6,
+    BYTE_ZERO = 0xF7,
     BYTE_DRAW_INSTRUCTION = 0xFF
 };
 
@@ -71,6 +73,7 @@ int serialClearHeightMapHeaderCount = 0;
 int serialResetHeaderCount = 0;
 int serialDrawHeaderCount = 0;
 int serialEOLHeaderCount = 0;
+int serialZeroHeaderCount = 0;
 
 void getSerial(int bytesToRead);
 
@@ -333,6 +336,23 @@ void getSerial(int bytesToRead)
             serialClearHeightMapHeaderCount = 0;
         }
 
+
+        //// Check for ZERO command header.
+        if (byteBuffer[i] == command::BYTE_ZERO)
+        {
+            serialZeroHeaderCount++;
+            if (serialZeroHeaderCount == 10)
+            {
+                Serial.println("Received Zero command");
+                requestedMode = Mode::Zero;
+                serialZeroHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialZeroHeaderCount = 0;
+        }
+
         //// check for DRAW_INSTRUCTION header.
         if (!serialInstructionStarted)
         {
@@ -415,47 +435,49 @@ void getSerial(int bytesToRead)
                             iBuffer[iBufferWriteIndex].dirY = serialMessageData[15];
                             iBuffer[iBufferWriteIndex].dirZ = serialMessageData[17];
                             iBuffer[iBufferWriteIndex].projection = serialMessageData[19];
-                            memcpy(b64.bytes, serialMessageData + 21, 8);
+                            iBuffer[iBufferWriteIndex].groupIndex = serialMessageData[21];
+                            iBuffer[iBufferWriteIndex].groupSize = serialMessageData[23];
+                            memcpy(b64.bytes, serialMessageData + 25, 8);
                             iBuffer[iBufferWriteIndex].startX = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 30, 8);
+                            memcpy(b64.bytes, serialMessageData + 34, 8);
                             iBuffer[iBufferWriteIndex].startY = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 39, 8);
+                            memcpy(b64.bytes, serialMessageData + 43, 8);
                             iBuffer[iBufferWriteIndex].startZ = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 48, 8);
+                            memcpy(b64.bytes, serialMessageData + 52, 8);
                             iBuffer[iBufferWriteIndex].endX = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 57, 8);
+                            memcpy(b64.bytes, serialMessageData + 61, 8);
                             iBuffer[iBufferWriteIndex].endY = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 66, 8);
+                            memcpy(b64.bytes, serialMessageData + 70, 8);
                             iBuffer[iBufferWriteIndex].endZ = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 75, 8);
+                            memcpy(b64.bytes, serialMessageData + 79, 8);
                             iBuffer[iBufferWriteIndex].deltaX = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 84, 8);
+                            memcpy(b64.bytes, serialMessageData + 88, 8);
                             iBuffer[iBufferWriteIndex].deltaY = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 93, 8);
+                            memcpy(b64.bytes, serialMessageData + 97, 8);
                             iBuffer[iBufferWriteIndex].deltaZ = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 102, 8);
+                            memcpy(b64.bytes, serialMessageData + 106, 8);
                             iBuffer[iBufferWriteIndex].deltaXX = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 111, 8);
+                            memcpy(b64.bytes, serialMessageData + 115, 8);
                             iBuffer[iBufferWriteIndex].deltaYY = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 120, 8);
+                            memcpy(b64.bytes, serialMessageData + 124, 8);
                             iBuffer[iBufferWriteIndex].deltaZZ = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 129, 8);
+                            memcpy(b64.bytes, serialMessageData + 133, 8);
                             iBuffer[iBufferWriteIndex].deltaXY = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 138, 8);
+                            memcpy(b64.bytes, serialMessageData + 142, 8);
                             iBuffer[iBufferWriteIndex].deltaXZ = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 147, 8);
+                            memcpy(b64.bytes, serialMessageData + 151, 8);
                             iBuffer[iBufferWriteIndex].deltaYZ = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 156, 8);
+                            memcpy(b64.bytes, serialMessageData + 160, 8);
                             iBuffer[iBufferWriteIndex].deltaMax = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 165, 8);
+                            memcpy(b64.bytes, serialMessageData + 169, 8);
                             iBuffer[iBufferWriteIndex].error = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 174, 8);
+                            memcpy(b64.bytes, serialMessageData + 178, 8);
                             iBuffer[iBufferWriteIndex].errorX = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 183, 8);
+                            memcpy(b64.bytes, serialMessageData + 187, 8);
                             iBuffer[iBufferWriteIndex].errorY = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 192, 8);
+                            memcpy(b64.bytes, serialMessageData + 196, 8);
                             iBuffer[iBufferWriteIndex].errorZ = b64.value;
-                            memcpy(u64.bytes, serialMessageData + 201, 8);
+                            memcpy(u64.bytes, serialMessageData + 205, 8);
                             iBuffer[iBufferWriteIndex].steps = (double)u64.value;
 
                             // Increment the bufferWriteIndex for an upcoming instruction.

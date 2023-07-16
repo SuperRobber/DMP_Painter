@@ -36,6 +36,10 @@ volatile DrawState drawState = DrawState::None;
 
 volatile HomeState homeState = HomeState::None;
 
+// ===================== Zero algorithm. =====================
+
+volatile ZeroState zeroState = ZeroState::None;
+
 // ===================== Height Mapping algorithm. =====================
 
 volatile MapHeightState mapHeightState = MapHeightState::None;
@@ -116,8 +120,8 @@ TMC262::STATUS status_M3 = {0};
 
 // extern volatile Stepper motors[4];
 
-volatile MoveInstruction move;
-volatile DrawInstruction draw;
+volatile MoveAction move;
+volatile DrawAction draw;
 
 volatile int64_t posX = 0;
 volatile int64_t posY = 0;
@@ -129,13 +133,13 @@ const int64_t posPenUpZ = 0;
 RoboTimer IRQTimer;
 
 /// Interrupt iteration times (speeds).
-const float moveSpeed = 7.5f;
-const float drawSpeed = 17.5f;
+const float moveSpeed = 7.0f;
+const float drawSpeed = 8.0f;
 const float homeSpeed = 100.0f;
 const float normalSpeed = 100.0f;
 
 // acceleration
-const double accelerationFactor = 200.0;
+const double accelerationFactor = 300.0;
 const double accelerationRange = 50.0;
 
 /// @brief Interrupt iteration time (speed).
@@ -237,6 +241,11 @@ FASTRUN void MachineLoop()
         MapHeight();
         break;
     }
+    case Mode::Zero:
+    {
+        Zero();
+        break;
+    }
     case Mode::ClearHeight:
     {
         /// clear HeightMap and EEPROM
@@ -312,6 +321,20 @@ FASTRUN void MachineLoop()
             homeState = HomeState::Limit;
             statusFunction = StatusFunction::Moving;
             activeMode = Mode::Home;
+        }
+
+        if (requestedMode == Mode::Zero)
+        {
+            if (sleeping) /// Wake up
+            {
+                setCurrent(workCurrent);
+                sleeping = false;
+            }
+            sleepTimer = 0;
+
+            zeroState = ZeroState::Choose;
+            statusFunction = StatusFunction::Moving;
+            activeMode = Mode::Zero;
         }
 
         if (requestedMode == Mode::MapHeight)
@@ -442,16 +465,19 @@ FASTRUN void Draw()
                 // Already at start position, continue drawing.
 
                 // copy values that will be changine during draw
-                draw.error = iBuffer[iBufferReadIndex].error;
                 draw.deltaX = iBuffer[iBufferReadIndex].deltaX;
                 draw.deltaY = iBuffer[iBufferReadIndex].deltaY;
                 draw.deltaZ = iBuffer[iBufferReadIndex].deltaZ;
+                draw.error = iBuffer[iBufferReadIndex].error;
                 draw.errorX = iBuffer[iBufferReadIndex].errorX;
                 draw.errorY = iBuffer[iBufferReadIndex].errorY;
                 draw.errorZ = iBuffer[iBufferReadIndex].errorZ;
                 draw.deltaMax = iBuffer[iBufferReadIndex].deltaMax;
                 draw.endStage = false;
-                draw.step = 0.0;
+
+                // Set step to 0 only on a new group, not for segment
+                if (iBuffer[iBufferReadIndex].groupIndex == 0)
+                    draw.step = 0.0;
 
                 drawState = DrawState::Draw;
                 statusFunction = StatusFunction::Drawing;
@@ -529,10 +555,6 @@ FASTRUN void Draw()
         {
             // Arrived at Z destination
 
-            // Serial.print(move.steps);
-            // Serial.print(" / ");
-            // Serial.println(move.step);
-
             drawState = DrawState::Choose;
             statusFunction = StatusFunction::Waiting;
 
@@ -561,10 +583,6 @@ FASTRUN void Draw()
         if (posX == move.endX && posY == move.endY)
         {
             // Arrived at XY destination
-
-            // Serial.print(move.steps);
-            // Serial.print(" / ");
-            // Serial.println(move.step);
 
             drawState = DrawState::Choose;
             statusFunction = StatusFunction::Waiting;
@@ -610,6 +628,7 @@ FASTRUN void Draw()
         SetDirectionsAndLimits();
         break;
     }
+    
     /// ================================================
     case (DrawState::Draw):
     {
@@ -618,10 +637,6 @@ FASTRUN void Draw()
         if (posX == iBuffer[iBufferReadIndex].endX && posY == iBuffer[iBufferReadIndex].endY && posZ == iBuffer[iBufferReadIndex].endZ)
         {
             /// Done drawing current line!
-
-            // Serial.print(iBuffer[iBufferReadIndex].steps);
-            // Serial.print(" / ");
-            // Serial.println(drawStep);
 
             iBufferReadIndex = (iBufferReadIndex + 1) & 63;
             drawState = DrawState::Choose;
@@ -656,25 +671,31 @@ FASTRUN void Draw()
             }
         }
 
-        double t = -fabs(iBuffer[iBufferReadIndex].steps * 0.5 - draw.step) + iBuffer[iBufferReadIndex].steps * 0.5;
-        machineSpeed = max(drawSpeed + accelerationRange - (t / (t + accelerationFactor)) * accelerationRange, drawSpeed);
+        double t = 1;
 
         if (iBuffer[iBufferReadIndex].acceleration == 0) // single
         {
+            t = -fabs(iBuffer[iBufferReadIndex].steps * 0.5 - draw.step) + iBuffer[iBufferReadIndex].steps * 0.5;
         }
         if (iBuffer[iBufferReadIndex].acceleration == 1) // start
         {
+            t = draw.step;
+            draw.t = t;
         }
         if (iBuffer[iBufferReadIndex].acceleration == 2) // continue
         {
+            t = draw.t;
         }
         if (iBuffer[iBufferReadIndex].acceleration == 3) // stop
         {
+            t = fabs(iBuffer[iBufferReadIndex].steps - draw.step);
         }
 
-        SetDirectionsAndLimits();
+        machineSpeed = max(drawSpeed + accelerationRange - (t / (t + accelerationFactor)) * accelerationRange, drawSpeed);
         if (draw.step < iBuffer[iBufferReadIndex].steps)
             draw.step++;
+
+        SetDirectionsAndLimits();
 
         break;
     }
@@ -720,7 +741,7 @@ FASTRUN void CalculateQuadBezier3DXY()
             draw.deltaX -= iBuffer[iBufferReadIndex].deltaXY;
             draw.deltaY += iBuffer[iBufferReadIndex].deltaYY;
             draw.error += draw.deltaY;
-            draw.errorZ -= draw.deltaXZ;
+            draw.errorZ -= iBuffer[iBufferReadIndex].deltaXZ;
         }
 
         if (do_step_y)
@@ -729,7 +750,7 @@ FASTRUN void CalculateQuadBezier3DXY()
             draw.deltaY -= iBuffer[iBufferReadIndex].deltaXY;
             draw.deltaX += iBuffer[iBufferReadIndex].deltaXX;
             draw.error += draw.deltaX;
-            draw.errorZ -= draw.deltaYZ;
+            draw.errorZ -= iBuffer[iBufferReadIndex].deltaYZ;
         }
 
         if (draw.errorZ < 0)
@@ -745,9 +766,9 @@ FASTRUN void CalculateQuadBezier3DXY()
             if (!draw.endStage)
             {
                 // Prepare remaining part of curve as a straight line
-                draw.deltaX = abs(draw.endX - posX);
-                draw.deltaY = abs(draw.endX - posY);
-                draw.deltaZ = abs(draw.endX - posZ);
+                draw.deltaX = abs(iBuffer[iBufferReadIndex].endX - posX);
+                draw.deltaY = abs(iBuffer[iBufferReadIndex].endY - posY);
+                draw.deltaZ = abs(iBuffer[iBufferReadIndex].endZ - posZ);
                 draw.deltaMax = max(draw.deltaZ, max(draw.deltaX, draw.deltaY));
                 draw.errorX = draw.deltaMax / 2;
                 draw.errorY = draw.deltaMax / 2;
@@ -772,8 +793,8 @@ FASTRUN void CalculateQuadBezier3DXZ()
             draw.deltaX -= iBuffer[iBufferReadIndex].deltaXZ;
             draw.deltaZ += iBuffer[iBufferReadIndex].deltaZZ;
             draw.error += draw.deltaZ;
-            draw.errorY -= draw.deltaXY;
-        }       
+            draw.errorY -= iBuffer[iBufferReadIndex].deltaXY;
+        }
 
         if (do_step_z)
         {
@@ -781,9 +802,9 @@ FASTRUN void CalculateQuadBezier3DXZ()
             draw.deltaZ -= iBuffer[iBufferReadIndex].deltaXZ;
             draw.deltaX += iBuffer[iBufferReadIndex].deltaXX;
             draw.error += draw.deltaX;
-            draw.errorY -= draw.deltaYZ;
+            draw.errorY -= iBuffer[iBufferReadIndex].deltaYZ;
         }
-        
+
         if (draw.errorY < 0)
         {
             StepY(iBuffer[iBufferReadIndex].dirY);
@@ -797,9 +818,9 @@ FASTRUN void CalculateQuadBezier3DXZ()
             if (!draw.endStage)
             {
                 // Prepare remaining part of curve as a straight line
-                draw.deltaX = abs(draw.endX - posX);
-                draw.deltaY = abs(draw.endX - posY);
-                draw.deltaZ = abs(draw.endX - posZ);
+                draw.deltaX = abs(iBuffer[iBufferReadIndex].endX - posX);
+                draw.deltaY = abs(iBuffer[iBufferReadIndex].endY - posY);
+                draw.deltaZ = abs(iBuffer[iBufferReadIndex].endZ - posZ);
                 draw.deltaMax = max(draw.deltaZ, max(draw.deltaX, draw.deltaY));
                 draw.errorX = draw.deltaMax / 2;
                 draw.errorY = draw.deltaMax / 2;
@@ -815,7 +836,7 @@ FASTRUN void CalculateQuadBezier3DYZ()
 {
     if (posY != iBuffer[iBufferReadIndex].endY && posZ != iBuffer[iBufferReadIndex].endZ)
     {
-        bool do_step_z = 2 * draw.error - draw.deltaY > 0;        
+        bool do_step_z = 2 * draw.error - draw.deltaY > 0;
         bool do_step_y = 2 * draw.error - draw.deltaZ < 0;
 
         if (do_step_z)
@@ -824,7 +845,7 @@ FASTRUN void CalculateQuadBezier3DYZ()
             draw.deltaZ -= iBuffer[iBufferReadIndex].deltaYZ;
             draw.deltaY += iBuffer[iBufferReadIndex].deltaYY;
             draw.error += draw.deltaY;
-            draw.errorX -= draw.deltaXZ;
+            draw.errorX -= iBuffer[iBufferReadIndex].deltaXZ;
         }
 
         if (do_step_y)
@@ -833,7 +854,7 @@ FASTRUN void CalculateQuadBezier3DYZ()
             draw.deltaY -= iBuffer[iBufferReadIndex].deltaYZ;
             draw.deltaZ += iBuffer[iBufferReadIndex].deltaZZ;
             draw.error += draw.deltaZ;
-            draw.errorX -= draw.deltaXY;
+            draw.errorX -= iBuffer[iBufferReadIndex].deltaXY;
         }
 
         if (draw.errorX < 0)
@@ -849,9 +870,9 @@ FASTRUN void CalculateQuadBezier3DYZ()
             if (!draw.endStage)
             {
                 // Prepare remaining part of curve as a straight line
-                draw.deltaX = abs(draw.endX - posX);
-                draw.deltaY = abs(draw.endX - posY);
-                draw.deltaZ = abs(draw.endX - posZ);
+                draw.deltaX = abs(iBuffer[iBufferReadIndex].endX - posX);
+                draw.deltaY = abs(iBuffer[iBufferReadIndex].endY - posY);
+                draw.deltaZ = abs(iBuffer[iBufferReadIndex].endZ - posZ);
                 draw.deltaMax = max(draw.deltaZ, max(draw.deltaX, draw.deltaY));
                 draw.errorX = draw.deltaMax / 2;
                 draw.errorY = draw.deltaMax / 2;
@@ -860,7 +881,7 @@ FASTRUN void CalculateQuadBezier3DYZ()
             }
             CalculateStraightLine3D();
         }
-    }    
+    }
 }
 
 /*
@@ -936,6 +957,153 @@ FASTRUN void CalculateStraightLine()
     }
 }
 */
+
+FASTRUN void Zero()
+{
+    switch (zeroState)
+    {
+    case (ZeroState::None):
+    {
+        break;
+    }
+
+    case (ZeroState::Choose):
+    {
+        if (posX == 0 && posY == 0 && posZ == 0)
+        {
+            //done
+            requestedMode = Mode::None;
+            activeMode = Mode::None;
+            homeState = HomeState::None;
+            break;
+        }
+        else
+        {
+            // Not at correct location yet. Is pen up ?
+            if (posZ == posPenUpZ)
+            {
+                // Pen is up.
+                // Set up a new movement to go to XY Location
+                move.endX = 0;
+                move.endY = 0;
+                move.deltaX = abs(move.endX - posX);
+                move.deltaY = -abs(move.endY - posY);
+                move.dirX = (posX < move.endX ? 1 : -1);
+                move.dirY = (posY < move.endY ? 1 : -1);
+                move.error = move.deltaX + move.deltaY;
+                if (move.deltaX > -move.deltaY)
+                {
+                    move.steps = (double)move.deltaX;
+                }
+                else
+                {
+                    move.steps = -(double)move.deltaY;
+                }
+                move.step = 0;
+                zeroState = ZeroState::MoveXY;
+                statusFunction = StatusFunction::Moving;
+                break;
+            }
+            else
+            {
+                // Prepare to lift pen.
+                move.endZ = posPenUpZ;
+                move.dirZ = (posZ < move.endZ ? 1 : -1);
+                move.steps = (double)abs(move.endZ - posZ);
+                move.step = 0;
+                zeroState = ZeroState::MoveZ;
+                statusFunction = StatusFunction::Moving;
+                break;
+            }
+        }
+        break;
+    }
+
+    /// ===============================================
+    case (ZeroState::MoveZ):
+    {
+        StepMotors();
+
+        if (posZ == move.endZ)
+        {
+            // Arrived at Z destination
+
+            zeroState = ZeroState::Choose;
+            statusFunction = StatusFunction::Waiting;
+
+            /// No urgency to continue straight on need to move // lift pen etc
+            break;
+        }
+
+        if (posZ != move.endZ)
+        {
+            StepZ(move.dirZ);
+        }
+
+        double t = -fabs(move.steps * 0.5 - move.step) + move.steps * 0.5;
+        machineSpeed = max(moveSpeed + accelerationRange - (t / (t + accelerationFactor)) * accelerationRange, moveSpeed);
+        move.step++;
+
+        SetDirectionsAndLimits();
+        break;
+    }
+
+    /// ===============================================
+    case (ZeroState::MoveXY):
+    {
+        StepMotors();
+
+        if (posX == move.endX && posY == move.endY)
+        {
+            // Arrived at XY destination
+
+            zeroState = ZeroState::Choose;
+            statusFunction = StatusFunction::Waiting;
+
+            /// No urgency to continue straight on need to move // lift pen etc
+            break;
+        }
+
+        if (posX != move.endX && posY != move.endY)
+        {
+            if (2 * move.error <= move.deltaX)
+            {
+                move.error += move.deltaX;
+                // stepY??
+                StepY(move.dirY);
+            }
+            if (2 * move.error >= move.deltaY)
+            {
+                move.error += move.deltaY;
+                // stepX??
+                StepX(move.dirX);
+            }
+        }
+        else
+        {
+            /// Either X or Y has reached its final position, if anything
+            /// remains, it must be a straight line.
+
+            if (posX != move.endX)
+            {
+                StepX(move.dirX);
+            }
+
+            if (posY != move.endY)
+            {
+                StepY(move.dirY);
+            }
+        }
+        double t = -fabs(move.steps * 0.5 - move.step) + move.steps * 0.5;
+        machineSpeed = max(moveSpeed + accelerationRange - (t / (t + accelerationFactor)) * accelerationRange, moveSpeed);
+        move.step++;
+
+        SetDirectionsAndLimits();
+        break;
+    }
+    
+    }
+}
 
 FASTRUN void Home()
 {

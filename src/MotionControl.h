@@ -49,6 +49,8 @@ struct DrawInstruction
     int8_t dirY;
     int8_t dirZ;
     uint8_t projection;
+    uint8_t groupIndex;
+    uint8_t groupSize;
     int64_t startX;
     int64_t startY;
     int64_t startZ;
@@ -71,10 +73,24 @@ struct DrawInstruction
     int64_t errorZ;
     double steps;
     double step;
-    bool endStage;
 };
 
-struct MoveInstruction
+struct DrawAction
+{
+    int64_t deltaX;
+    int64_t deltaY;
+    int64_t deltaZ;
+    int64_t deltaMax;
+    int64_t error;
+    int64_t errorX;
+    int64_t errorY;
+    int64_t errorZ;
+    double step;
+    bool endStage;
+    double t;
+};
+
+struct MoveAction
 {
     int8_t dirX;
     int8_t dirY;
@@ -104,7 +120,8 @@ enum class Mode
     EOL,
     Reset,
     MapHeight,
-    ClearHeight
+    ClearHeight,
+    Zero
 };
 
 /// @brief State Machine used for drawing lines.
@@ -124,6 +141,15 @@ enum class HomeState
     Limit,
     Zero,
     Done
+};
+
+/// @brief State Machine used for zero-ing.
+enum class ZeroState
+{
+    None,
+    Choose,    
+    MoveXY,
+    MoveZ,
 };
 
 /// @brief State Machine used for building a heightMap.
