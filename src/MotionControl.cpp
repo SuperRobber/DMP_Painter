@@ -457,6 +457,10 @@ FASTRUN void Draw()
                     draw.errorZ = draw.deltaMax / 2;
                 }
 
+                if (iBuffer[iBufferReadIndex].type==2)
+                {
+                }
+
                 drawState = DrawState::Draw;
                 statusFunction = StatusFunction::Drawing;
 
@@ -703,7 +707,7 @@ FASTRUN void CalculateStraightLine3D()
         StepY(iBuffer[iBufferReadIndex].dirY);
     }
 
-    draw.errorZ -= draw.deltaMax;
+    draw.errorZ -= draw.deltaZ;
     if (draw.errorZ < 0)
     {
         draw.errorZ += draw.deltaMax;
