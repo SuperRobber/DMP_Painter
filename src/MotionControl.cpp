@@ -32,7 +32,6 @@ volatile DrawState drawState = DrawState::None;
 // volatile int64_t drawErrZ = 0;
 // volatile double drawStep = 0;
 
-
 // ===================== Home algorithm. =====================
 
 volatile HomeState homeState = HomeState::None;
@@ -395,7 +394,7 @@ FASTRUN void Draw()
                 // Prepare to lift pen.
                 move.endZ = posPenUpZ;
                 move.dirZ = (posZ < move.endZ ? 1 : -1);
-                move.steps = (double) abs(move.endZ - posZ);
+                move.steps = (double)abs(move.endZ - posZ);
                 move.step = 0;
                 drawState = DrawState::MoveZ;
                 statusFunction = StatusFunction::Moving;
@@ -418,7 +417,7 @@ FASTRUN void Draw()
                 // Prepare to lift pen.
                 move.endZ = posPenUpZ;
                 move.dirZ = (posZ < move.endZ ? 1 : -1);
-                move.steps = (double) abs(move.endZ - posZ);
+                move.steps = (double)abs(move.endZ - posZ);
                 move.step = 0;
                 drawState = DrawState::MoveZ;
                 statusFunction = StatusFunction::Moving;
@@ -437,7 +436,6 @@ FASTRUN void Draw()
             /// Start a new instruction or continue preparing to draw
             drawIndex = iBuffer[iBufferReadIndex].index;
 
-
             /// Move first?
             if (posX == iBuffer[iBufferReadIndex].startX && posY == iBuffer[iBufferReadIndex].startY && posZ == iBuffer[iBufferReadIndex].startZ)
             {
@@ -448,25 +446,12 @@ FASTRUN void Draw()
                 draw.deltaX = iBuffer[iBufferReadIndex].deltaX;
                 draw.deltaY = iBuffer[iBufferReadIndex].deltaY;
                 draw.deltaZ = iBuffer[iBufferReadIndex].deltaZ;
+                draw.errorX = iBuffer[iBufferReadIndex].errorX;
+                draw.errorY = iBuffer[iBufferReadIndex].errorY;
+                draw.errorZ = iBuffer[iBufferReadIndex].errorZ;
+                draw.deltaMax = iBuffer[iBufferReadIndex].deltaMax;
+                draw.endStage = false;
                 draw.step = 0.0;
-
-                if (iBuffer[iBufferReadIndex].type==1)
-                {
-                    //could move these to the exporter
-                    draw.deltaMax = max(draw.deltaZ, max(draw.deltaX, draw.deltaY));
-                    draw.errorX = draw.deltaMax / 2;
-                    draw.errorY = draw.deltaMax / 2;
-                    draw.errorZ = draw.deltaMax / 2;
-                }
-
-                if (iBuffer[iBufferReadIndex].type==2)
-                {
-                    draw.errorX = iBuffer[iBufferReadIndex].errorX;
-                    draw.errorY = iBuffer[iBufferReadIndex].errorY;
-                    draw.errorZ = iBuffer[iBufferReadIndex].errorZ;
-                    draw.deltaMax = iBuffer[iBufferReadIndex].deltaMax;
-                    draw.endStage = false;
-                }
 
                 drawState = DrawState::Draw;
                 statusFunction = StatusFunction::Drawing;
@@ -485,7 +470,7 @@ FASTRUN void Draw()
                     // Prepare to move pen to Z start Position.
                     move.endZ = iBuffer[iBufferReadIndex].startZ;
                     move.dirZ = (posZ < move.endZ ? 1 : -1);
-                    move.steps = (double) abs(move.endZ - posZ);
+                    move.steps = (double)abs(move.endZ - posZ);
                     move.step = 0;
                     drawState = DrawState::MoveZ;
                     statusFunction = StatusFunction::Moving;
@@ -523,7 +508,7 @@ FASTRUN void Draw()
                         // Prepare to lift pen.
                         move.endZ = posPenUpZ;
                         move.dirZ = (posZ < move.endZ ? 1 : -1);
-                        move.steps = (double) abs(move.endZ - posZ);
+                        move.steps = (double)abs(move.endZ - posZ);
                         move.step = 0;
                         drawState = DrawState::MoveZ;
                         statusFunction = StatusFunction::Moving;
@@ -662,17 +647,17 @@ FASTRUN void Draw()
 
             if (iBuffer[iBufferReadIndex].projection == 2)
             {
-                CalculateQuadBezier3DXZ();             
+                CalculateQuadBezier3DXZ();
             }
 
             if (iBuffer[iBufferReadIndex].projection == 3)
-            {               
-                CalculateQuadBezier3DYZ();             
+            {
+                CalculateQuadBezier3DYZ();
             }
         }
 
-        double t = -fabs(iBuffer[iBufferReadIndex].steps*0.5 - draw.step) + iBuffer[iBufferReadIndex].steps*0.5;
-        machineSpeed = max(drawSpeed + accelerationRange - (t / (t + accelerationFactor))*accelerationRange, drawSpeed);
+        double t = -fabs(iBuffer[iBufferReadIndex].steps * 0.5 - draw.step) + iBuffer[iBufferReadIndex].steps * 0.5;
+        machineSpeed = max(drawSpeed + accelerationRange - (t / (t + accelerationFactor)) * accelerationRange, drawSpeed);
 
         if (iBuffer[iBufferReadIndex].acceleration == 0) // single
         {
@@ -727,7 +712,7 @@ FASTRUN void CalculateQuadBezier3DXY()
     if (posX != iBuffer[iBufferReadIndex].endX && posY != iBuffer[iBufferReadIndex].endY)
     {
         bool do_step_x = 2 * draw.error - draw.deltaY > 0;
-        bool do_step_y = 2 * draw.error - draw.deltaX < 0;  
+        bool do_step_y = 2 * draw.error - draw.deltaX < 0;
 
         if (do_step_x)
         {
@@ -739,7 +724,7 @@ FASTRUN void CalculateQuadBezier3DXY()
         }
 
         if (do_step_y)
-        {        
+        {
             StepY(iBuffer[iBufferReadIndex].dirY);
             draw.deltaY -= iBuffer[iBufferReadIndex].deltaXY;
             draw.deltaX += iBuffer[iBufferReadIndex].deltaXX;
@@ -752,10 +737,13 @@ FASTRUN void CalculateQuadBezier3DXY()
             StepZ(iBuffer[iBufferReadIndex].dirZ);
             draw.errorZ += draw.deltaZ;
         }
-    } else {
+    }
+    else
+    {
         if (posX != iBuffer[iBufferReadIndex].endX || posY != iBuffer[iBufferReadIndex].endY || posZ != iBuffer[iBufferReadIndex].endZ)
         {
-            if (!draw.endStage) {
+            if (!draw.endStage)
+            {
                 // Prepare remaining part of curve as a straight line
                 draw.deltaX = abs(draw.endX - posX);
                 draw.deltaY = abs(draw.endX - posY);
@@ -763,8 +751,8 @@ FASTRUN void CalculateQuadBezier3DXY()
                 draw.deltaMax = max(draw.deltaZ, max(draw.deltaX, draw.deltaY));
                 draw.errorX = draw.deltaMax / 2;
                 draw.errorY = draw.deltaMax / 2;
-                draw.errorZ = draw.deltaMax / 2;                
-                draw.endStage=true;
+                draw.errorZ = draw.deltaMax / 2;
+                draw.endStage = true;
             }
             CalculateStraightLine3D();
         }
@@ -773,12 +761,106 @@ FASTRUN void CalculateQuadBezier3DXY()
 
 FASTRUN void CalculateQuadBezier3DXZ()
 {
+    if (posX != iBuffer[iBufferReadIndex].endX && posZ != iBuffer[iBufferReadIndex].endZ)
+    {
+        bool do_step_x = 2 * draw.error - draw.deltaZ > 0;
+        bool do_step_z = 2 * draw.error - draw.deltaX < 0;
 
+        if (do_step_x)
+        {
+            StepX(iBuffer[iBufferReadIndex].dirX);
+            draw.deltaX -= iBuffer[iBufferReadIndex].deltaXZ;
+            draw.deltaZ += iBuffer[iBufferReadIndex].deltaZZ;
+            draw.error += draw.deltaZ;
+            draw.errorY -= draw.deltaXY;
+        }       
+
+        if (do_step_z)
+        {
+            StepZ(iBuffer[iBufferReadIndex].dirZ);
+            draw.deltaZ -= iBuffer[iBufferReadIndex].deltaXZ;
+            draw.deltaX += iBuffer[iBufferReadIndex].deltaXX;
+            draw.error += draw.deltaX;
+            draw.errorY -= draw.deltaYZ;
+        }
+        
+        if (draw.errorY < 0)
+        {
+            StepY(iBuffer[iBufferReadIndex].dirY);
+            draw.errorY += draw.deltaY;
+        }
+    }
+    else
+    {
+        if (posX != iBuffer[iBufferReadIndex].endX || posY != iBuffer[iBufferReadIndex].endY || posZ != iBuffer[iBufferReadIndex].endZ)
+        {
+            if (!draw.endStage)
+            {
+                // Prepare remaining part of curve as a straight line
+                draw.deltaX = abs(draw.endX - posX);
+                draw.deltaY = abs(draw.endX - posY);
+                draw.deltaZ = abs(draw.endX - posZ);
+                draw.deltaMax = max(draw.deltaZ, max(draw.deltaX, draw.deltaY));
+                draw.errorX = draw.deltaMax / 2;
+                draw.errorY = draw.deltaMax / 2;
+                draw.errorZ = draw.deltaMax / 2;
+                draw.endStage = true;
+            }
+            CalculateStraightLine3D();
+        }
+    }
 }
 
 FASTRUN void CalculateQuadBezier3DYZ()
 {
+    if (posY != iBuffer[iBufferReadIndex].endY && posZ != iBuffer[iBufferReadIndex].endZ)
+    {
+        bool do_step_z = 2 * draw.error - draw.deltaY > 0;        
+        bool do_step_y = 2 * draw.error - draw.deltaZ < 0;
 
+        if (do_step_z)
+        {
+            StepZ(iBuffer[iBufferReadIndex].dirZ);
+            draw.deltaZ -= iBuffer[iBufferReadIndex].deltaYZ;
+            draw.deltaY += iBuffer[iBufferReadIndex].deltaYY;
+            draw.error += draw.deltaY;
+            draw.errorX -= draw.deltaXZ;
+        }
+
+        if (do_step_y)
+        {
+            StepY(iBuffer[iBufferReadIndex].dirY);
+            draw.deltaY -= iBuffer[iBufferReadIndex].deltaYZ;
+            draw.deltaZ += iBuffer[iBufferReadIndex].deltaZZ;
+            draw.error += draw.deltaZ;
+            draw.errorX -= draw.deltaXY;
+        }
+
+        if (draw.errorX < 0)
+        {
+            StepX(iBuffer[iBufferReadIndex].dirX);
+            draw.errorX += draw.deltaX;
+        }
+    }
+    else
+    {
+        if (posX != iBuffer[iBufferReadIndex].endX || posY != iBuffer[iBufferReadIndex].endY || posZ != iBuffer[iBufferReadIndex].endZ)
+        {
+            if (!draw.endStage)
+            {
+                // Prepare remaining part of curve as a straight line
+                draw.deltaX = abs(draw.endX - posX);
+                draw.deltaY = abs(draw.endX - posY);
+                draw.deltaZ = abs(draw.endX - posZ);
+                draw.deltaMax = max(draw.deltaZ, max(draw.deltaX, draw.deltaY));
+                draw.errorX = draw.deltaMax / 2;
+                draw.errorY = draw.deltaMax / 2;
+                draw.errorZ = draw.deltaMax / 2;
+                draw.endStage = true;
+            }
+            CalculateStraightLine3D();
+        }
+    }    
 }
 
 /*
@@ -1164,7 +1246,7 @@ FASTRUN void MapHeight()
                     StepY(move.dirY);
                 }
             }
-            double speedRamp = min(-fabs(move.steps*0.5 - move.step) + move.steps*0.5, 12000.0) / 400.0;
+            double speedRamp = min(-fabs(move.steps * 0.5 - move.step) + move.steps * 0.5, 12000.0) / 400.0;
             machineSpeed = max(7.0 + 30.0 - speedRamp, 7.0);
             move.step++;
         }
