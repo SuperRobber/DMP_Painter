@@ -443,6 +443,7 @@ FASTRUN void Draw()
             {
                 // Already at start position, continue drawing.
 
+                // copy values that will be changine during draw
                 draw.error = iBuffer[iBufferReadIndex].error;
                 draw.deltaX = iBuffer[iBufferReadIndex].deltaX;
                 draw.deltaY = iBuffer[iBufferReadIndex].deltaY;
@@ -451,6 +452,7 @@ FASTRUN void Draw()
 
                 if (iBuffer[iBufferReadIndex].type==1)
                 {
+                    //could move these to the exporter
                     draw.deltaMax = max(draw.deltaZ, max(draw.deltaX, draw.deltaY));
                     draw.errorX = draw.deltaMax / 2;
                     draw.errorY = draw.deltaMax / 2;
@@ -459,6 +461,11 @@ FASTRUN void Draw()
 
                 if (iBuffer[iBufferReadIndex].type==2)
                 {
+                    draw.errorX = iBuffer[iBufferReadIndex].errorX;
+                    draw.errorY = iBuffer[iBufferReadIndex].errorY;
+                    draw.errorZ = iBuffer[iBufferReadIndex].errorZ;
+                    draw.deltaMax = iBuffer[iBufferReadIndex].deltaMax;
+                    draw.endStage = false;
                 }
 
                 drawState = DrawState::Draw;
@@ -717,7 +724,51 @@ FASTRUN void CalculateStraightLine3D()
 
 FASTRUN void CalculateQuadBezier3DXY()
 {
+    if (posX != iBuffer[iBufferReadIndex].endX && posY != iBuffer[iBufferReadIndex].endY)
+    {
+        bool do_step_x = 2 * draw.error - draw.deltaY > 0;
+        bool do_step_y = 2 * draw.error - draw.deltaX < 0;  
 
+        if (do_step_x)
+        {
+            StepX(iBuffer[iBufferReadIndex].dirX);
+            draw.deltaX -= iBuffer[iBufferReadIndex].deltaXY;
+            draw.deltaY += iBuffer[iBufferReadIndex].deltaYY;
+            draw.error += draw.deltaY;
+            draw.errorZ -= draw.deltaXZ;
+        }
+
+        if (do_step_y)
+        {        
+            StepY(iBuffer[iBufferReadIndex].dirY);
+            draw.deltaY -= iBuffer[iBufferReadIndex].deltaXY;
+            draw.deltaX += iBuffer[iBufferReadIndex].deltaXX;
+            draw.error += draw.deltaX;
+            draw.errorZ -= draw.deltaYZ;
+        }
+
+        if (draw.errorZ < 0)
+        {
+            StepZ(iBuffer[iBufferReadIndex].dirZ);
+            draw.errorZ += draw.deltaZ;
+        }
+    } else {
+        if (posX != iBuffer[iBufferReadIndex].endX || posY != iBuffer[iBufferReadIndex].endY || posZ != iBuffer[iBufferReadIndex].endZ)
+        {
+            if (!draw.endStage) {
+                // Prepare remaining part of curve as a straight line
+                draw.deltaX = abs(draw.endX - posX);
+                draw.deltaY = abs(draw.endX - posY);
+                draw.deltaZ = abs(draw.endX - posZ);
+                draw.deltaMax = max(draw.deltaZ, max(draw.deltaX, draw.deltaY));
+                draw.errorX = draw.deltaMax / 2;
+                draw.errorY = draw.deltaMax / 2;
+                draw.errorZ = draw.deltaMax / 2;                
+                draw.endStage=true;
+            }
+            CalculateStraightLine3D();
+        }
+    }
 }
 
 FASTRUN void CalculateQuadBezier3DXZ()
@@ -731,40 +782,6 @@ FASTRUN void CalculateQuadBezier3DYZ()
 }
 
 /*
-FASTRUN void CalculateStraightLine()
-{
-    // Draw Straight Line
-    if (posX != iBuffer[iBufferReadIndex].endX && posY != iBuffer[iBufferReadIndex].endY)
-    {
-        if (2 * drawError <= drawDeltaX)
-        {
-            drawError += drawDeltaX;
-            // stepY??
-            StepY(iBuffer[iBufferReadIndex].dirY);
-        }
-        if (2 * drawError >= drawDeltaY)
-        {
-            drawError += drawDeltaY;
-            // stepX??
-            StepX(iBuffer[iBufferReadIndex].dirX);
-        }
-    }
-    else
-    {
-        // At least x or y has reached its final position, if anything remains,
-        // it must be a straight line.
-        if (posX != iBuffer[iBufferReadIndex].endX)
-        {
-            StepX(iBuffer[iBufferReadIndex].dirX);
-        }
-
-        if (posY != iBuffer[iBufferReadIndex].endY)
-        {
-            StepY(iBuffer[iBufferReadIndex].dirY);
-        }
-    }
-}
-
 FASTRUN void CalculateQuadBezier()
 {
     // Draw Quadratic Bezier
@@ -785,6 +802,40 @@ FASTRUN void CalculateQuadBezier()
             drawDeltaX -= iBuffer[iBufferReadIndex].deltaXY;
             drawDeltaY += iBuffer[iBufferReadIndex].deltaYY;
             drawError += drawDeltaY;
+        }
+    }
+    else
+    {
+        // At least x or y has reached its final position, if anything remains,
+        // it must be a straight line.
+        if (posX != iBuffer[iBufferReadIndex].endX)
+        {
+            StepX(iBuffer[iBufferReadIndex].dirX);
+        }
+
+        if (posY != iBuffer[iBufferReadIndex].endY)
+        {
+            StepY(iBuffer[iBufferReadIndex].dirY);
+        }
+    }
+}
+
+FASTRUN void CalculateStraightLine()
+{
+    // Draw Straight Line
+    if (posX != iBuffer[iBufferReadIndex].endX && posY != iBuffer[iBufferReadIndex].endY)
+    {
+        if (2 * drawError <= drawDeltaX)
+        {
+            drawError += drawDeltaX;
+            // stepY??
+            StepY(iBuffer[iBufferReadIndex].dirY);
+        }
+        if (2 * drawError >= drawDeltaY)
+        {
+            drawError += drawDeltaY;
+            // stepX??
+            StepX(iBuffer[iBufferReadIndex].dirX);
         }
     }
     else

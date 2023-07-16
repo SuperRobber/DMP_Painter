@@ -64,13 +64,14 @@ struct DrawInstruction
     int64_t deltaXY;
     int64_t deltaXZ;
     int64_t deltaYZ;
+    int64_t deltaMax;
     int64_t error;
     int64_t errorX;
     int64_t errorY;
     int64_t errorZ;
-    int64_t deltaMax;
     double steps;
     double step;
+    bool endStage;
 };
 
 struct MoveInstruction
