@@ -3,6 +3,7 @@
 
 #include "MotionControl.h"
 
+elapsedMicros heightTimer;
 elapsedMillis disconnectTimer;
 elapsedMillis statusTimer;
 elapsedMillis requestTimer;
@@ -50,6 +51,11 @@ enum command
     BYTE_EOL = 0xF5,
     BYTE_CLEARHEIGHT = 0xF6,
     BYTE_ZERO = 0xF7,
+    BYTE_ZUP = 0xF8,
+    BYTE_ZDOWN = 0xF9,
+    BYTE_SETPENUP = 0xFA,
+    BYTE_SETPENMIN = 0xFB,
+    BYTE_SETPENMAX = 0xFC,
     BYTE_DRAW_INSTRUCTION = 0xFF
 };
 
@@ -75,12 +81,45 @@ int serialDrawHeaderCount = 0;
 int serialEOLHeaderCount = 0;
 int serialZeroHeaderCount = 0;
 
+int serialZUpHeaderCount = 0;
+int serialZDownHeaderCount = 0;
+int serialSetPenUpHeaderCount = 0;
+int serialSetPenMinHeaderCount = 0;
+int serialSetPenMaxHeaderCount = 0;
+
+
 void getSerial(int bytesToRead);
+
+/// ===================== ODMini Sensor =====================
+
+// int ZHeight = 32010;
+int ODMiniRWPin = 15;
+#define ODMiniSerial Serial4
+bool ODReceived = false;
+uint32_t ODErrors = 0;
+
+union ODMiniValue
+{
+    int16_t value;
+    byte bytes[2];
+};
+
+ODMiniValue ODMeasurement;
+uint8_t ODMiniSendBuffer[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+uint8_t ODMiniMeasureBuffer[6] = {0x02, 0x43, 0xB0, 0x01, 0x03, 0xF2};
+uint8_t ODMiniReceiveBuffer[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 /// ===================== setup - Configure and initialise hardware. =====================
 
 void setup()
 {
+    // OD Mini Sensor
+    pinMode(ODMiniRWPin, OUTPUT);
+    digitalWriteFast(ODMiniRWPin, LOW);
+    ODMiniSerial.begin(1250000);
+    ODMiniSerial.transmitterEnable(ODMiniRWPin);
+    ODMiniSerial.setTimeout(1);
+
     Serial.begin(115200);
 
     pinMode(powerSenseCSPin, OUTPUT);
@@ -101,6 +140,44 @@ void setup()
 
 void loop()
 {
+    // Read new data from ODMini height sensor.
+    if (ODMiniSerial.available() >= 6)
+    {
+        if (ODMiniSerial.readBytes(ODMiniReceiveBuffer, 6) < 6)
+        {
+            Serial.println("OD Mini Timeout!");
+        }
+        else
+        {
+            if (ODMiniReceiveBuffer[1] == 6) // ACK
+            {
+                ODMeasurement.bytes[0] = ODMiniReceiveBuffer[3];
+                ODMeasurement.bytes[1] = ODMiniReceiveBuffer[2];
+                ZHeight = ODMeasurement.value;
+                ODReceived = true;
+            }
+        }
+    }
+
+    if (heightTimer > 2000)
+    {
+        if (ODReceived)
+        {
+            // Request data from ODMini height sensor.
+            ODReceived = false;
+            heightTimer = 0;
+            ODMiniSerial.write(ODMiniMeasureBuffer, 6);
+        }
+        else
+        {
+            // Data lost or overflow?
+            // Request data from ODMini height sensor.
+            ODErrors++;
+            heightTimer = 0;
+            ODMiniSerial.clear();
+            ODMiniSerial.write(ODMiniMeasureBuffer, 6);
+        }
+    }
 
     /// Connected to the Loader program?
     if (Serial.dtr())
@@ -191,9 +268,19 @@ void loop()
                 status += String(switches[s].pressed);
                 status += "$";
             }
-            status += (int) statusFunction;
+            status += (int)statusFunction;
             status += "$";
             status += drawIndex;
+            status += "$";
+            status += ZHeight;
+            status += "$";
+            status += String(ODErrors);
+            status += "$";
+            status += String(posZUp);
+            status += "$";
+            status += String(posZDrawMin);
+            status += "$";
+            status += String(posZDrawMax);
             status += "$";
 
             /// Send status to Loader program.
@@ -336,7 +423,6 @@ void getSerial(int bytesToRead)
             serialClearHeightMapHeaderCount = 0;
         }
 
-
         //// Check for ZERO command header.
         if (byteBuffer[i] == command::BYTE_ZERO)
         {
@@ -352,6 +438,87 @@ void getSerial(int bytesToRead)
         {
             serialZeroHeaderCount = 0;
         }
+
+        /// Check for ZUp command header.
+        if (byteBuffer[i] == command::BYTE_ZUP)
+        {
+            serialZUpHeaderCount++;
+            if (serialZUpHeaderCount == 10)
+            {
+                // Serial.println("Received ZUp command");
+                requestedMode = Mode::ZUp;
+                serialZUpHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialZUpHeaderCount = 0;
+        }
+
+        /// Check for ZDown command header.
+        if (byteBuffer[i] == command::BYTE_ZDOWN)
+        {
+            serialZDownHeaderCount++;
+            if (serialZDownHeaderCount == 10)
+            {
+                // Serial.println("Received ZDown command");
+                requestedMode = Mode::ZDown;
+                serialZDownHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialZDownHeaderCount = 0;
+        }
+
+
+        /// Check for SetPenUp command header.
+        if (byteBuffer[i] == command::BYTE_SETPENUP)
+        {
+            serialSetPenUpHeaderCount++;
+            if (serialSetPenUpHeaderCount == 10)
+            {
+                Serial.println("Received SetPenUp command");
+                requestedMode = Mode::SetPenUp;
+                serialSetPenUpHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialSetPenUpHeaderCount = 0;
+        }
+
+        /// Check for SetPenMin command header.
+        if (byteBuffer[i] == command::BYTE_SETPENMIN)
+        {
+            serialSetPenMinHeaderCount++;
+            if (serialSetPenMinHeaderCount == 10)
+            {
+                Serial.println("Received SetPenMin command");
+                requestedMode = Mode::SetPenMin;
+                serialSetPenMinHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialSetPenMinHeaderCount = 0;
+        }
+
+        /// Check for SetPenMax command header.
+        if (byteBuffer[i] == command::BYTE_SETPENMAX)
+        {
+            serialSetPenMaxHeaderCount++;
+            if (serialSetPenMaxHeaderCount == 10)
+            {
+                Serial.println("Received SetPenMax command");
+                requestedMode = Mode::SetPenMax;
+                serialSetPenMaxHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialSetPenMaxHeaderCount = 0;
+        }        
 
         //// check for DRAW_INSTRUCTION header.
         if (!serialInstructionStarted)

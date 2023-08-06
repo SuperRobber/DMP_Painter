@@ -121,7 +121,12 @@ enum class Mode
     Reset,
     MapHeight,
     ClearHeight,
-    Zero
+    Zero,
+    ZUp,
+    ZDown,
+    SetPenUp,
+    SetPenMin,
+    SetPenMax
 };
 
 /// @brief State Machine used for drawing lines.
@@ -158,10 +163,19 @@ enum class MapHeightState
     None,
     Choose,
     MoveUp,
+    MoveZero,
     StartMoveXY,
     MoveXY,
-    MoveDown,
+    // MoveDown, // no longer used
     Done
+};
+
+/// @brief State Machine used for setting brush heights
+enum class ZState
+{
+    None,
+    Choose,    
+    Move,
 };
 
 extern volatile Mode activeMode;
@@ -188,11 +202,11 @@ extern volatile int64_t receivedInstruction;
 
 // ===================== Height Mapping algorithm. =====================
 
-#define HeightMapWidth 5
-#define HeightMapHeight 8
-#define HeightMapSize 40
+#define HeightMapWidth  24
+#define HeightMapLength 36
+#define HeightMapSize   864
 
-extern volatile int64_t HeightMap[];
+extern volatile int32_t HeightMap[];
 
 /// ===================== Limit switch states =====================
 
@@ -284,6 +298,12 @@ extern volatile int32_t M3_pos;
 extern volatile int32_t M4_pos;
 extern volatile int32_t M5_pos;
 
+extern volatile int32_t ZHeight;
+
+extern volatile int32_t posZUp;
+extern volatile int32_t posZDrawMin;
+extern volatile int32_t posZDrawMax;
+
 /// ===================== FUNCTIONS that are part of the interrupt loop (FASTRUN) =====================
 
 /// @brief The main motion control loop. Called via interrupt timer. To move as
@@ -301,6 +321,18 @@ FASTRUN void Draw();
 
 /// @brief The homing algorithm.
 FASTRUN void Home();
+
+/// @brief The Zero algorithm.
+FASTRUN void Zero();
+
+/// @brief Move Brush Up
+FASTRUN void ZUp();
+
+/// @brief Move Brush Down
+FASTRUN void ZDown();
+
+/// @brief The Zero algorithm.
+FASTRUN void Zero();
 
 /// @brief The height mapping algorithm.
 FASTRUN void MapHeight();

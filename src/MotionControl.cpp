@@ -35,6 +35,7 @@ volatile DrawState drawState = DrawState::None;
 // ===================== Home algorithm. =====================
 
 volatile HomeState homeState = HomeState::None;
+int homeZCount = 0;
 
 // ===================== Zero algorithm. =====================
 
@@ -43,12 +44,13 @@ volatile ZeroState zeroState = ZeroState::None;
 // ===================== Height Mapping algorithm. =====================
 
 volatile MapHeightState mapHeightState = MapHeightState::None;
-volatile int64_t HeightMap[HeightMapSize];
+volatile int32_t HeightMap[HeightMapSize];
 
-const int heightMapMaxCount = 7; // number of times to probe one position;
-volatile int64_t HeightMapProbeResults[heightMapMaxCount];
+// const int heightMapMaxCount = 7; // number of times to probe one position;
+// volatile int64_t HeightMapProbeResults[heightMapMaxCount];
 volatile int heightMapIndex = 0;
 volatile int heightMapCount = 0;
+int HeightMapOffset=0;
 
 /// ===================== Power Saving =====================
 
@@ -127,7 +129,12 @@ volatile int64_t posX = 0;
 volatile int64_t posY = 0;
 volatile int64_t posZ = 0;
 
-const int64_t posPenUpZ = 0;
+volatile ZState zState = ZState::None;
+volatile int32_t posZUp = 0;
+volatile int32_t posZDrawMin = 0;
+volatile int32_t posZDrawMax = 0;
+
+int64_t posZMove = 0;
 
 /// Hardware interrupt (PIR) TIMER triggering MachineLoop Interrupt.
 RoboTimer IRQTimer;
@@ -162,6 +169,8 @@ volatile int32_t M3_pos = 0;
 volatile int32_t M4_pos = 0;
 volatile int32_t M5_pos = 0;
 
+volatile int32_t ZHeight = 0;
+
 volatile int8_t M1_direction = 0;
 volatile int8_t M2_direction = 0;
 volatile int8_t M3_direction = 0;
@@ -172,20 +181,67 @@ volatile int8_t M5_direction = 0;
 volatile uint32_t max_step_cycles = 0;
 
 /// ==========================================
+/// Weight function for bilinear interpolation
+
+// float Weight(float a, float b)
+// {
+//     return a * b;
+// }
+
+/// Weight function for optimized (constrained) bicubic
+
+float Weight(float a, float b)
+{
+    return a * a * b * b * (9.0f - 6.0f * a - 6.0f * b + 4.0f * a * b);
+}
+
+int32_t Interpolate(int32_t Px0y0, int32_t Px1y0, int32_t Px0y1,  int32_t Px1y1, float tX, float tY) 
+{
+    return Weight(1-tX,1-tY)*Px0y0 + Weight(tX,1-tY)*Px1y0 + Weight(1-tX,tY)*Px0y1 + Weight(tX,tY)*Px1y1;
+}
+
+
+/// ==========================================
 
 void StartUp()
 {
+    byte32 b32 = {};
     /// Read the HeightMap from EEPROM
     for (unsigned int i = 0; i < HeightMapSize; i++)
     {
-        byte64 b64 = {};
-        for (int e = 0; e < 8; e++)
+        for (int e = 0; e < 4; e++)
         {
-            b64.bytes[e] = EEPROM.read(i * 8 + e);
+            b32.bytes[e] = EEPROM.read(i * 4 + e + 64);
         }
-        HeightMap[i] = b64.value;
-        Serial.println(HeightMap[i]);
+        HeightMap[i] = b32.value;
     }
+
+    // Read the HeightMap offset from EEPROM
+    for (int e = 0; e < 4; e++)
+    {
+        b32.bytes[e] = EEPROM.read(e + 60);
+    }
+    HeightMapOffset = b32.value;
+
+    /// Read PenPositions from EEPROM
+    for (int e = 0; e < 4; e++)
+    {
+        b32.bytes[e] = EEPROM.read(e + 0);
+    }
+    posZUp = b32.value;
+
+    for (int e = 0; e < 4; e++)
+    {
+        b32.bytes[e] = EEPROM.read(e + 4);
+    }
+    posZDrawMin = b32.value;
+
+    for (int e = 0; e < 4; e++)
+    {
+        b32.bytes[e] = EEPROM.read(e + 8);
+    }
+    posZDrawMax = b32.value;
+
     activeMode = Mode::None;
     requestedMode = Mode::None;
 
@@ -207,6 +263,18 @@ void StartUp()
     CCM_CSCMR1 &= ~CCM_CSCMR1_PERCLK_CLK_SEL;
     IRQTimer.priority(16);
     IRQTimer.begin(MachineLoop, machineSpeed);
+
+    Serial.println(HeightMap[0]);
+    Serial.println(HeightMap[1]);
+    Serial.println(HeightMap[0]+HeightMapWidth);
+    Serial.println(HeightMap[1]+HeightMapWidth);
+
+    int32_t dx = XMAX / HeightMapWidth;
+    int32_t dy = YMAX / HeightMapLength;
+
+    int32_t Havg = Interpolate(HeightMap[0],HeightMap[1],HeightMap[0]+HeightMapWidth,HeightMap[1]+HeightMapWidth,0.5f,0.5f);
+    Serial.println(Havg);
+
 }
 
 FASTRUN void MachineLoop()
@@ -251,12 +319,12 @@ FASTRUN void MachineLoop()
         /// clear HeightMap and EEPROM
         for (int i = 0; i < HeightMapSize; i++)
         {
-            byte64 b64 = {};
-            b64.value = INT64_MIN;
-            HeightMap[i] = INT64_MIN;
-            for (int e = 0; e < 8; e++)
+            byte32 b32 = {};
+            b32.value = INT32_MIN;
+            HeightMap[i] = INT32_MIN;
+            for (int e = 0; e < 4; e++)
             {
-                EEPROM.write(i * 8 + e, b64.bytes[e]);
+                EEPROM.write(i * 4 + e + 64, b32.bytes[e]);
             }
         }
         heightMapCount = 0;
@@ -265,6 +333,75 @@ FASTRUN void MachineLoop()
         activeMode = Mode::None;
         break;
     }
+
+    case Mode::ZUp:
+    {
+        ZUp();
+        break;
+    }
+
+    case Mode::ZDown:
+    {
+        ZDown();
+        break;
+    }
+
+    case Mode::SetPenUp:
+    {
+        posZUp = posZ;
+
+        /// store in eeprom
+        byte32 b32 = {};
+        b32.value = posZUp;
+        for (int e = 0; e < 4; e++)
+        {
+            EEPROM.write(e + 0, b32.bytes[e]);
+        }
+
+        Serial.print("Set Pen Up position to: ");
+        Serial.println(posZUp);
+        requestedMode = Mode::None;
+        activeMode = Mode::None;
+        break;
+    }
+
+    case Mode::SetPenMin:
+    {
+        posZDrawMin = posZ;
+
+        /// store in eeprom
+        byte32 b32 = {};
+        b32.value = posZDrawMin;
+        for (int e = 0; e < 4; e++)
+        {
+            EEPROM.write(e + 4, b32.bytes[e]);
+        }
+
+        Serial.print("Set Pen Min position to: ");
+        Serial.println(posZDrawMin);
+        requestedMode = Mode::None;
+        activeMode = Mode::None;
+        break;
+    }
+
+    case Mode::SetPenMax:
+    {
+        posZDrawMax = posZ;
+
+        /// store in eeprom
+        byte32 b32 = {};
+        b32.value = posZDrawMax;
+        for (int e = 0; e < 4; e++)
+        {
+            EEPROM.write(e + 8, b32.bytes[e]);
+        }
+        Serial.print("Set Pen Max position to: ");
+        Serial.println(posZDrawMax);
+        requestedMode = Mode::None;
+        activeMode = Mode::None;
+        break;
+    }
+
     case Mode::None:
     {
         stepM1 = false;
@@ -355,6 +492,52 @@ FASTRUN void MachineLoop()
             activeMode = Mode::ClearHeight;
         }
 
+        if (requestedMode == Mode::ClearHeight)
+        {
+            activeMode = Mode::ClearHeight;
+        }
+
+        if (requestedMode == Mode::ZUp)
+        {
+            if (sleeping) /// Wake up
+            {
+                setCurrent(workCurrent);
+                sleeping = false;
+            }
+            sleepTimer = 0;
+            zState = ZState::Choose;
+            statusFunction = StatusFunction::Moving;
+            activeMode = Mode::ZUp;
+        }
+
+        if (requestedMode == Mode::ZDown)
+        {
+            if (sleeping) /// Wake up
+            {
+                setCurrent(workCurrent);
+                sleeping = false;
+            }
+            sleepTimer = 0;
+            zState = ZState::Choose;
+            statusFunction = StatusFunction::Moving;
+            activeMode = Mode::ZDown;
+        }
+
+        if (requestedMode == Mode::SetPenUp)
+        {
+            activeMode = Mode::SetPenUp;
+        }
+
+        if (requestedMode == Mode::SetPenMin)
+        {
+            activeMode = Mode::SetPenMin;
+        }
+
+        if (requestedMode == Mode::SetPenMax)
+        {
+            activeMode = Mode::SetPenMax;
+        }
+
         machineSpeed = normalSpeed;
         break;
     }
@@ -397,6 +580,118 @@ FASTRUN void MachineLoop()
     }
 }
 
+FASTRUN void ZDown()
+{
+    switch (zState)
+    {
+    case (ZState::None):
+    {
+        break;
+    }
+    case (ZState::Choose):
+    {
+        posZMove = posZ + 20;
+        requestedMode = Mode::None;
+        zState = ZState::Move;
+        break;
+    }
+    case (ZState::Move):
+    {
+        StepMotors();
+
+        /// Is there a request to Stop homeing?
+        if (requestedMode == Mode::Stop)
+        {
+            activeMode = Mode::Stop;
+            zState = ZState::None;
+            // Do not execute the rest of this case.
+            break;
+        }
+
+        if (M4_pos == posZMove)
+        {
+            activeMode = Mode::None;
+            zState = ZState::None;
+            statusFunction = StatusFunction::Waiting;
+        }
+        else
+        {
+            if (posZ > posZMove)
+            {
+                M4_direction = -1;
+                stepM4 = true;
+            }
+
+            if (posZ < posZMove)
+            {
+                M4_direction = 1;
+                stepM4 = true;
+            }
+        }
+
+        SetDirectionsAndLimits();
+        machineSpeed = homeSpeed * 4;
+        break;
+    }
+    }
+}
+
+FASTRUN void ZUp()
+{
+    switch (zState)
+    {
+    case (ZState::None):
+    {
+        break;
+    }
+    case (ZState::Choose):
+    {
+        posZMove = posZ - 20;
+        requestedMode = Mode::None;
+        zState = ZState::Move;
+        break;
+    }
+    case (ZState::Move):
+    {
+        StepMotors();
+
+        /// Is there a request to Stop homeing?
+        if (requestedMode == Mode::Stop)
+        {
+            activeMode = Mode::Stop;
+            zState = ZState::None;
+            // Do not execute the rest of this case.
+            break;
+        }
+
+        if (M4_pos == posZMove)
+        {
+            activeMode = Mode::None;
+            zState = ZState::None;
+            statusFunction = StatusFunction::Waiting;
+        }
+        else
+        {
+            if (posZ > posZMove)
+            {
+                M4_direction = -1;
+                stepM4 = true;
+            }
+
+            if (posZ < posZMove)
+            {
+                M4_direction = 1;
+                stepM4 = true;
+            }
+        }
+
+        SetDirectionsAndLimits();
+        machineSpeed = homeSpeed * 4;
+        break;
+    }
+    }
+}
+
 FASTRUN void Draw()
 {
     switch (drawState)
@@ -412,10 +707,10 @@ FASTRUN void Draw()
         if (requestedMode == Mode::Stop)
         {
             // Check / LIFT PEN up
-            if (posZ != posPenUpZ)
+            if (posZ != posZUp)
             {
                 // Prepare to lift pen.
-                move.endZ = posPenUpZ;
+                move.endZ = posZUp;
                 move.dirZ = (posZ < move.endZ ? 1 : -1);
                 move.steps = (double)abs(move.endZ - posZ);
                 move.step = 0;
@@ -435,10 +730,10 @@ FASTRUN void Draw()
             /// additional instructions.
 
             // Check / LIFT PEN up
-            if (posZ != posPenUpZ)
+            if (posZ != posZUp)
             {
                 // Prepare to lift pen.
-                move.endZ = posPenUpZ;
+                move.endZ = posZUp;
                 move.dirZ = (posZ < move.endZ ? 1 : -1);
                 move.steps = (double)abs(move.endZ - posZ);
                 move.step = 0;
@@ -505,7 +800,7 @@ FASTRUN void Draw()
                 else
                 {
                     // Not at correct location yet. Is pen up ?
-                    if (posZ == posPenUpZ)
+                    if (posZ == posZUp)
                     {
                         // Pen is up.
                         // Set up a new movement to go to XY Location
@@ -532,7 +827,7 @@ FASTRUN void Draw()
                     else
                     {
                         // Prepare to lift pen.
-                        move.endZ = posPenUpZ;
+                        move.endZ = posZUp;
                         move.dirZ = (posZ < move.endZ ? 1 : -1);
                         move.steps = (double)abs(move.endZ - posZ);
                         move.step = 0;
@@ -628,7 +923,7 @@ FASTRUN void Draw()
         SetDirectionsAndLimits();
         break;
     }
-    
+
     /// ================================================
     case (DrawState::Draw):
     {
@@ -971,7 +1266,7 @@ FASTRUN void Zero()
     {
         if (posX == 0 && posY == 0 && posZ == 0)
         {
-            //done
+            // done
             requestedMode = Mode::None;
             activeMode = Mode::None;
             homeState = HomeState::None;
@@ -980,7 +1275,7 @@ FASTRUN void Zero()
         else
         {
             // Not at correct location yet. Is pen up ?
-            if (posZ == posPenUpZ)
+            if (posZ == 0)
             {
                 // Pen is up.
                 // Set up a new movement to go to XY Location
@@ -1007,7 +1302,7 @@ FASTRUN void Zero()
             else
             {
                 // Prepare to lift pen.
-                move.endZ = posPenUpZ;
+                move.endZ = 0;
                 move.dirZ = (posZ < move.endZ ? 1 : -1);
                 move.steps = (double)abs(move.endZ - posZ);
                 move.step = 0;
@@ -1101,7 +1396,6 @@ FASTRUN void Zero()
         SetDirectionsAndLimits();
         break;
     }
-    
     }
 }
 
@@ -1131,6 +1425,8 @@ FASTRUN void Home()
         {
             /// All limit switches hit,
             /// proceed to margin position
+            homeZCount = 0;
+
             M1_pos = 0;
             M2_pos = 0;
             M3_pos = 0;
@@ -1171,19 +1467,23 @@ FASTRUN void Home()
             break;
         }
 
-        if (M1_pos == 13581 && M2_pos == 13581 && M3_pos == 13581 && M4_pos == 13581)
+        if (M1_pos == 13581 && M2_pos == 13581 && M3_pos == 13581 && ZHeight == 1500)
         {
-            /// Margin reached at 1 cm on axis,
-            /// reset coordinates.
-            M1_pos = 0;
-            M2_pos = 0;
-            M3_pos = 0;
-            M4_pos = 0;
-            posX = 0;
-            posY = 0;
-            posZ = 0;
-            homeState = HomeState::Done;
-            statusFunction = StatusFunction::Waiting;
+            homeZCount++;
+            if (homeZCount > 1000)
+            {
+                /// Margin reached at 1 cm on axis,
+                /// reset coordinates.
+                M1_pos = 0;
+                M2_pos = 0;
+                M3_pos = 0;
+                M4_pos = 0;
+                posX = 0;
+                posY = 0;
+                posZ = 0;
+                homeState = HomeState::Done;
+                statusFunction = StatusFunction::Waiting;
+            }
         }
         else
         {
@@ -1220,21 +1520,33 @@ FASTRUN void Home()
                 stepM3 = true;
             }
 
-            if (M4_pos > 13581)
+            if (ZHeight < 1500)
             {
                 M4_direction = -1;
                 stepM4 = true;
             }
 
-            if (M4_pos < 13581)
+            if (ZHeight > 1500)
             {
                 M4_direction = 1;
                 stepM4 = true;
             }
+
+            // if (M4_pos > 13581)
+            // {
+            //     M4_direction = -1;
+            //     stepM4 = true;
+            // }
+
+            // if (M4_pos < 13581)
+            // {
+            //     M4_direction = 1;
+            //     stepM4 = true;
+            // }
         }
 
         SetDirectionsAndLimits();
-        machineSpeed = homeSpeed;
+        machineSpeed = homeSpeed * 4;
         break;
     }
     /// ================================================
@@ -1264,7 +1576,7 @@ FASTRUN void MapHeight()
         /// Get index of the First HeightMap position that is not set.
         for (int i = (HeightMapSize - 1); i >= 0; i--)
         {
-            if (HeightMap[i] == INT64_MIN)
+            if (HeightMap[i] == INT32_MIN)
             {
                 heightMapIndex = i;
             }
@@ -1288,7 +1600,7 @@ FASTRUN void MapHeight()
         else
         {
             /// heightMapIndex needs mapping.
-            if (posZ != 0)
+            if (posZ != 0 && heightMapIndex == 0)
             {
                 /// Move up first, then return here.
                 mapHeightState = MapHeightState::MoveUp;
@@ -1307,12 +1619,13 @@ FASTRUN void MapHeight()
 
                 /// Ready to move to the correct position
                 move.endX = (XMAX / (HeightMapWidth - 1)) * (heightMapIndex % HeightMapWidth);
-                move.endY = (YMAX / (HeightMapHeight - 1)) * (heightMapIndex / HeightMapWidth);
+                move.endY = (YMAX / (HeightMapLength - 1)) * (heightMapIndex / HeightMapWidth);
 
                 if (posX == move.endX && posY == move.endY)
                 {
+                    heightMapCount = 0;
                     /// Mapping position already reached, proceed to map height.
-                    mapHeightState = MapHeightState::MoveDown;
+                    mapHeightState = MapHeightState::MoveZero;
                     statusFunction = StatusFunction::Mapping;
                 }
                 else
@@ -1348,6 +1661,66 @@ FASTRUN void MapHeight()
                 StepZ(1);
         }
         machineSpeed = normalSpeed;
+
+        SetDirectionsAndLimits();
+        break;
+    }
+
+    /// ================================================
+    case (MapHeightState::MoveZero):
+    {
+        StepMotors();
+
+        if (ZHeight == 0)
+        {
+            heightMapCount++;
+            if (heightMapCount > 200)
+            {
+                if (heightMapIndex==0) {
+                    HeightMap[heightMapIndex] = 0;
+                    HeightMapOffset = posZ;
+
+                    // store offset in EEPROM
+                    byte32 b32 = {};
+                    b32.value = HeightMapOffset;
+                    for (int e = 0; e < 4; e++)
+                    {
+                        EEPROM.write(e + 60, b32.bytes[e]);
+                    }
+                } else {
+                    HeightMap[heightMapIndex] = posZ - HeightMapOffset;
+                }
+
+                /// store Mapped height in EEPROM
+                byte32 b32 = {};
+                b32.value = HeightMap[heightMapIndex];
+                for (int e = 0; e < 4; e++)
+                {
+                    EEPROM.write(heightMapIndex * 4 + e + 64, b32.bytes[e]);
+                }
+
+                // reset count for next index.
+                Serial.print("Height set for index:");
+                Serial.print(heightMapIndex);
+                Serial.print(" to:");
+                Serial.println(HeightMap[heightMapIndex]);
+
+                /// Check if we need to map another position in the map.
+                /// Switch to state: Choose
+                mapHeightState = MapHeightState::Choose;
+                machineSpeed = normalSpeed;
+                break;
+            }
+        }
+        else
+        {
+            if (ZHeight > 0)
+                StepZ(1);
+
+            if (ZHeight < 0)
+                StepZ(-1);
+        }
+        machineSpeed = normalSpeed * 10;
 
         SetDirectionsAndLimits();
         break;
@@ -1414,89 +1787,13 @@ FASTRUN void MapHeight()
                     StepY(move.dirY);
                 }
             }
-            double speedRamp = min(-fabs(move.steps * 0.5 - move.step) + move.steps * 0.5, 12000.0) / 400.0;
-            machineSpeed = max(7.0 + 30.0 - speedRamp, 7.0);
+            // double speedRamp = min(-fabs(move.steps * 0.5 - move.step) + move.steps * 0.5, 12000.0) / 400.0;
+            // machineSpeed = max(7.0 + 30.0 - speedRamp, 7.0);
+
+            double t = -fabs(move.steps * 0.5 - move.step) + move.steps * 0.5;
+            machineSpeed = max(moveSpeed + accelerationRange - (t / (t + accelerationFactor)) * accelerationRange, moveSpeed);
             move.step++;
         }
-        SetDirectionsAndLimits();
-        break;
-    }
-    /// ================================================
-    case (MapHeightState::MoveDown):
-    {
-        /// Hit the floor
-        StepMotors();
-
-        if (switches[swZEnd].pressed)
-        {
-            /// add value to sum
-            HeightMapProbeResults[heightMapCount] = posZ;
-            heightMapCount++;
-
-            if (heightMapCount >= heightMapMaxCount)
-            {
-
-                /// Get the index for the heighest and lowest value.
-                int indexHeighest = 0;
-                int indexLowest = 0;
-                for (int i = 1; i < heightMapCount; i++)
-                {
-                    if (HeightMapProbeResults[i] > HeightMapProbeResults[indexHeighest])
-                        indexHeighest = i;
-                    if (HeightMapProbeResults[i] < HeightMapProbeResults[indexLowest])
-                        indexLowest = i;
-                }
-                int sumCount = 0;
-                uint64_t sum = 0;
-                for (int i = 0; i < heightMapCount; i++)
-                {
-                    if (i == indexHeighest || i == indexLowest)
-                    {
-                        /// skip
-                    }
-                    else
-                    {
-                        sum += HeightMapProbeResults[i];
-                        sumCount++;
-                    }
-                }
-                uint64_t height = 0;
-                if (heightMapIndex == 0)
-                {
-                    height = (sum / sumCount);
-                }
-                else
-                {
-                    height = HeightMap[0] - (sum / sumCount);
-                }
-
-                HeightMap[heightMapIndex] = height;
-
-                /// store in EEPROM
-                byte64 b64 = {};
-                b64.value = height;
-                for (int e = 0; e < 8; e++)
-                {
-                    EEPROM.write(heightMapIndex * 8 + e, b64.bytes[e]);
-                }
-
-                // reset count for next index.
-                Serial.print("Height set for index:");
-                Serial.print(heightMapIndex);
-                Serial.print(" to:");
-                Serial.println(HeightMap[heightMapIndex]);
-                heightMapCount = 0;
-            }
-
-            /// Check if we need to map another position in the map.
-            /// Switch to state: Choose
-            mapHeightState = MapHeightState::Choose;
-            machineSpeed = normalSpeed;
-            break;
-        }
-        StepZ(1);
-        machineSpeed = normalSpeed;
-
         SetDirectionsAndLimits();
         break;
     }
@@ -1596,13 +1893,13 @@ FASTRUN void SetDirectionsAndLimits()
 
     if (M4_direction == 1)
     {
-        digitalWriteFast(M4_dirPin, LOW); // Motor reverse mount
+        digitalWriteFast(M4_dirPin, HIGH);
         if (switches[swZEnd].pressed)
             stepM4 = false;
     }
     if (M4_direction == -1)
     {
-        digitalWriteFast(M4_dirPin, HIGH); // Motor reverse mount
+        digitalWriteFast(M4_dirPin, LOW);
         if (switches[swZStart].pressed)
             stepM4 = false;
     }
