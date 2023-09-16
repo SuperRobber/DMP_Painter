@@ -16,8 +16,8 @@
 #include "RoboTimer.h"
 #include "TMC_Registers.h"
 
-#define XMAX 1100000 // total X steps +- 1127620 | margin (13581)
-#define YMAX 1568000 // total Y steps +- 1595169 | margin (13581)
+#define XMAX 1113600 // total X steps +- 1127620 | margin (2x 6400)  870mm
+#define YMAX 1574400 // total Y steps +- 1588400 | margin (2x 6400) 1230mm
 
 /// @brief Union to convert int64 to byteArray.
 union byte64
@@ -122,11 +122,25 @@ enum class Mode
     MapHeight,
     ClearHeight,
     Zero,
+    XUp,
+    XDown,
+    SetXStart,
+    YUp,
+    YDown,
+    SetYStart,
     ZUp,
     ZDown,
     SetPenUp,
+    PenUpPlus,
+    PenUpMinus,
     SetPenMin,
-    SetPenMax
+    PenMinPlus,
+    PenMinMinus,
+    SetPenMax,
+    PenMaxPlus,
+    PenMaxMinus,
+    Store,
+    Recall
 };
 
 /// @brief State Machine used for drawing lines.
@@ -170,7 +184,23 @@ enum class MapHeightState
     Done
 };
 
-/// @brief State Machine used for setting brush heights
+/// @brief State Machine used for setting brush Left/Right
+enum class XState
+{
+    None,
+    Choose,    
+    Move,
+};
+
+/// @brief State Machine used for setting brush Forward/Back
+enum class YState
+{
+    None,
+    Choose,    
+    Move,
+};
+
+/// @brief State Machine used for setting brush Up/Down
 enum class ZState
 {
     None,
@@ -200,14 +230,6 @@ extern volatile int64_t requestedInstruction;
 /// @brief Index for last received Instruction
 extern volatile int64_t receivedInstruction;
 
-// ===================== Height Mapping algorithm. =====================
-
-#define HeightMapWidth  24
-#define HeightMapLength 36
-#define HeightMapSize   864
-
-extern volatile int32_t HeightMap[];
-
 /// ===================== Limit switch states =====================
 
 /// Switch hardware pins
@@ -234,7 +256,9 @@ extern volatile int32_t HeightMap[];
 #define swZStart 7
 #define swZEnd 8
 
-const int numSwitches = 9;
+/// ===================== Limit switches =====================
+
+#define numSwitches 9
 
 struct LimitSwitch
 {
@@ -246,8 +270,11 @@ struct LimitSwitch
 
 extern volatile LimitSwitch switches[];
 
-/// =====================  Status  =====================
+/// ===================== OD-Mini Height Sensor =====================
 
+extern volatile int32_t heightMeasurement;
+
+/// =====================  Status  =====================
 
 enum class StatusFunction {
     Idle = 0,
@@ -281,28 +308,23 @@ extern TMC262::STATUS status_M3;
 
 /// ===================== Motion Control =====================
 
-/// motor position (global for status display)
-
-// struct Stepper
-// {
-//     int32_t pos;
-//     int8_t direction;
-//     bool step;
-// };
-
-// extern volatile Stepper motors[];
-
 extern volatile int32_t M1_pos;
 extern volatile int32_t M2_pos;
 extern volatile int32_t M3_pos;
 extern volatile int32_t M4_pos;
 extern volatile int32_t M5_pos;
 
-extern volatile int32_t ZHeight;
+extern volatile int32_t posZMotor;
+extern volatile int64_t posZDraw;
 
 extern volatile int32_t posZUp;
 extern volatile int32_t posZDrawMin;
 extern volatile int32_t posZDrawMax;
+
+extern volatile int64_t posXDraw;
+extern volatile int32_t posXStart;
+extern volatile int64_t posYDraw;
+extern volatile int32_t posYStart;
 
 /// ===================== FUNCTIONS that are part of the interrupt loop (FASTRUN) =====================
 
@@ -324,6 +346,18 @@ FASTRUN void Home();
 
 /// @brief The Zero algorithm.
 FASTRUN void Zero();
+
+/// @brief Move Brush Left
+FASTRUN void XUp();
+
+/// @brief Move Brush Right
+FASTRUN void XDown();
+
+/// @brief Move Brush Back
+FASTRUN void YUp();
+
+/// @brief Move Brush Forward
+FASTRUN void YDown();
 
 /// @brief Move Brush Up
 FASTRUN void ZUp();
@@ -347,6 +381,7 @@ FASTRUN void StepMotors();
 /// @attention FASTRUN in interrupt
 /// @return
 FASTRUN void SetDirectionsAndLimits();
+FASTRUN void SetHomeDirectionsAndLimits();
 
 /// @brief Debouncing of Limit switches.
 /// Fast press and slow release debounce.
@@ -364,7 +399,11 @@ FASTRUN void StepY(int8_t dir);
 
 /// @brief Prepare a step in Z direction
 /// @param dir positive or negative Z direction
-FASTRUN void StepZ(int8_t dir);
+FASTRUN void StepZ(int8_t dxir);
+
+/// @brief Prepare a drawstep in Z direction with a possible height error compensation
+/// @param dir positive or negative Z direction
+FASTRUN void StepZDraw(int8_t dir);
 
 /// @brief Manually set current scale on Stepper Motors
 /// @param cur 0 - 31 current scale

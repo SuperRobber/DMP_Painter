@@ -56,7 +56,21 @@ enum command
     BYTE_SETPENUP = 0xFA,
     BYTE_SETPENMIN = 0xFB,
     BYTE_SETPENMAX = 0xFC,
-    BYTE_DRAW_INSTRUCTION = 0xFF
+    BYTE_DRAW_INSTRUCTION = 0xFF,
+    BYTE_PENUPPLUS = 0xE0,
+    BYTE_PENUPMINUS = 0xE1,
+    BYTE_PENMINPLUS = 0xE2,
+    BYTE_PENMINMINUS = 0xE3,
+    BYTE_PENMAXPLUS = 0xE4,
+    BYTE_PENMAXMINUS = 0xE5,
+    BYTE_XUP = 0xE6,
+    BYTE_XDOWN = 0xE7,
+    BYTE_SETXSTART = 0xE8,
+    BYTE_YUP = 0xE9,
+    BYTE_YDOWN = 0xEA,
+    BYTE_SETYSTART = 0xEB,
+    BYTE_STORE = 0xEC,
+    BYTE_RECALL = 0xED
 };
 
 /// ===================== Serial protocol =====================
@@ -81,18 +95,34 @@ int serialDrawHeaderCount = 0;
 int serialEOLHeaderCount = 0;
 int serialZeroHeaderCount = 0;
 
+int serialSetPenUpHeaderCount = 0;
+int serialPenUpPlusHeaderCount = 0;
+int serialPenUpMinusHeaderCount = 0;
+
+int serialSetPenMinHeaderCount = 0;
+int serialPenMinPlusHeaderCount = 0;
+int serialPenMinMinusHeaderCount = 0;
+
+int serialSetPenMaxHeaderCount = 0;
+int serialPenMaxPlusHeaderCount = 0;
+int serialPenMaxMinusHeaderCount = 0;
+
+int serialXUpHeaderCount = 0;
+int serialXDownHeaderCount = 0;
+int serialSetXStartHeaderCount = 0;
+int serialYUpHeaderCount = 0;
+int serialYDownHeaderCount = 0;
+int serialSetYStartHeaderCount = 0;
 int serialZUpHeaderCount = 0;
 int serialZDownHeaderCount = 0;
-int serialSetPenUpHeaderCount = 0;
-int serialSetPenMinHeaderCount = 0;
-int serialSetPenMaxHeaderCount = 0;
 
+int serialStoreHeaderCount = 0;
+int serialRecallHeaderCount = 0;
 
 void getSerial(int bytesToRead);
 
 /// ===================== ODMini Sensor =====================
 
-// int ZHeight = 32010;
 int ODMiniRWPin = 15;
 #define ODMiniSerial Serial4
 bool ODReceived = false;
@@ -153,7 +183,7 @@ void loop()
             {
                 ODMeasurement.bytes[0] = ODMiniReceiveBuffer[3];
                 ODMeasurement.bytes[1] = ODMiniReceiveBuffer[2];
-                ZHeight = ODMeasurement.value;
+                heightMeasurement = ODMeasurement.value;
                 ODReceived = true;
             }
         }
@@ -272,7 +302,7 @@ void loop()
             status += "$";
             status += drawIndex;
             status += "$";
-            status += ZHeight;
+            status += heightMeasurement;
             status += "$";
             status += String(ODErrors);
             status += "$";
@@ -281,6 +311,10 @@ void loop()
             status += String(posZDrawMin);
             status += "$";
             status += String(posZDrawMax);
+            status += "$";
+            status += String(posXStart);
+            status += "$";
+            status += String(posYStart);
             status += "$";
 
             /// Send status to Loader program.
@@ -439,13 +473,104 @@ void getSerial(int bytesToRead)
             serialZeroHeaderCount = 0;
         }
 
+        /// Check for XUp command header.
+        if (byteBuffer[i] == command::BYTE_XUP)
+        {
+            serialXUpHeaderCount++;
+            if (serialXUpHeaderCount == 10)
+            {
+                requestedMode = Mode::XUp;
+                serialXUpHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialXUpHeaderCount = 0;
+        }
+
+        /// Check for XDown command header.
+        if (byteBuffer[i] == command::BYTE_XDOWN)
+        {
+            serialXDownHeaderCount++;
+            if (serialXDownHeaderCount == 10)
+            {
+                requestedMode = Mode::XDown;
+                serialXDownHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialXDownHeaderCount = 0;
+        }
+
+        /// Check for SetXStart command header.
+        if (byteBuffer[i] == command::BYTE_SETXSTART)
+        {
+            serialSetXStartHeaderCount++;
+            if (serialSetXStartHeaderCount == 10)
+            {
+                Serial.println("Received SetYXtart command");
+                requestedMode = Mode::SetXStart;
+                serialSetXStartHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialSetXStartHeaderCount = 0;
+        }
+
+        /// Check for YUp command header.
+        if (byteBuffer[i] == command::BYTE_YUP)
+        {
+            serialYUpHeaderCount++;
+            if (serialYUpHeaderCount == 10)
+            {
+                requestedMode = Mode::YUp;
+                serialYUpHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialYUpHeaderCount = 0;
+        }
+
+        /// Check for YDown command header.
+        if (byteBuffer[i] == command::BYTE_YDOWN)
+        {
+            serialYDownHeaderCount++;
+            if (serialYDownHeaderCount == 10)
+            {
+                requestedMode = Mode::YDown;
+                serialYDownHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialYDownHeaderCount = 0;
+        }
+
+        /// Check for SetYStart command header.
+        if (byteBuffer[i] == command::BYTE_SETYSTART)
+        {
+            serialSetYStartHeaderCount++;
+            if (serialSetYStartHeaderCount == 10)
+            {
+                Serial.println("Received SetYStart command");
+                requestedMode = Mode::SetYStart;
+                serialSetYStartHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialSetYStartHeaderCount = 0;
+        }
+
         /// Check for ZUp command header.
         if (byteBuffer[i] == command::BYTE_ZUP)
         {
             serialZUpHeaderCount++;
             if (serialZUpHeaderCount == 10)
             {
-                // Serial.println("Received ZUp command");
                 requestedMode = Mode::ZUp;
                 serialZUpHeaderCount = 0;
             }
@@ -461,7 +586,6 @@ void getSerial(int bytesToRead)
             serialZDownHeaderCount++;
             if (serialZDownHeaderCount == 10)
             {
-                // Serial.println("Received ZDown command");
                 requestedMode = Mode::ZDown;
                 serialZDownHeaderCount = 0;
             }
@@ -470,7 +594,6 @@ void getSerial(int bytesToRead)
         {
             serialZDownHeaderCount = 0;
         }
-
 
         /// Check for SetPenUp command header.
         if (byteBuffer[i] == command::BYTE_SETPENUP)
@@ -486,6 +609,36 @@ void getSerial(int bytesToRead)
         else
         {
             serialSetPenUpHeaderCount = 0;
+        }
+
+        /// Check for PenUpPlus command header.
+        if (byteBuffer[i] == command::BYTE_PENUPPLUS)
+        {
+            serialPenUpPlusHeaderCount++;
+            if (serialPenUpPlusHeaderCount == 10)
+            {
+                requestedMode = Mode::PenUpPlus;
+                serialPenUpPlusHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialPenUpPlusHeaderCount = 0;
+        }
+
+        /// Check for PenUpMinus command header.
+        if (byteBuffer[i] == command::BYTE_PENUPMINUS)
+        {
+            serialPenUpMinusHeaderCount++;
+            if (serialPenUpMinusHeaderCount == 10)
+            {
+                requestedMode = Mode::PenUpMinus;
+                serialPenUpMinusHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialPenUpMinusHeaderCount = 0;
         }
 
         /// Check for SetPenMin command header.
@@ -504,6 +657,36 @@ void getSerial(int bytesToRead)
             serialSetPenMinHeaderCount = 0;
         }
 
+        /// Check for PenMinPlus command header.
+        if (byteBuffer[i] == command::BYTE_PENMINPLUS)
+        {
+            serialPenMinPlusHeaderCount++;
+            if (serialPenMinPlusHeaderCount == 10)
+            {
+                requestedMode = Mode::PenMinPlus;
+                serialPenMinPlusHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialPenMinPlusHeaderCount = 0;
+        }
+
+        /// Check for PenMinMinus command header.
+        if (byteBuffer[i] == command::BYTE_PENMINMINUS)
+        {
+            serialPenMinMinusHeaderCount++;
+            if (serialPenMinMinusHeaderCount == 10)
+            {
+                requestedMode = Mode::PenMinMinus;
+                serialPenMinMinusHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialPenMinMinusHeaderCount = 0;
+        }
+
         /// Check for SetPenMax command header.
         if (byteBuffer[i] == command::BYTE_SETPENMAX)
         {
@@ -518,7 +701,69 @@ void getSerial(int bytesToRead)
         else
         {
             serialSetPenMaxHeaderCount = 0;
-        }        
+        }
+
+        /// Check for PenMaxPlus command header.
+        if (byteBuffer[i] == command::BYTE_PENMAXPLUS)
+        {
+            serialPenMaxPlusHeaderCount++;
+            if (serialPenMaxPlusHeaderCount == 10)
+            {
+                requestedMode = Mode::PenMaxPlus;
+                serialPenMaxPlusHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialPenMaxPlusHeaderCount = 0;
+        }
+
+        /// Check for PenMaxMinus command header.
+        if (byteBuffer[i] == command::BYTE_PENMAXMINUS)
+        {
+            serialPenMaxMinusHeaderCount++;
+            if (serialPenMaxMinusHeaderCount == 10)
+            {
+                requestedMode = Mode::PenMaxMinus;
+                serialPenMaxMinusHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialPenMaxMinusHeaderCount = 0;
+        }
+
+        /// Check for Store command header.
+        if (byteBuffer[i] == command::BYTE_STORE)
+        {
+            serialStoreHeaderCount++;
+            if (serialStoreHeaderCount == 10)
+            {
+                Serial.println("Received Store command");
+                requestedMode = Mode::Store;
+                serialStoreHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialStoreHeaderCount = 0;
+        }
+
+        /// Check for Recall command header.
+        if (byteBuffer[i] == command::BYTE_RECALL)
+        {
+            serialRecallHeaderCount++;
+            if (serialRecallHeaderCount == 10)
+            {
+                Serial.println("Received Recall command");
+                requestedMode = Mode::Recall;
+                serialRecallHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialRecallHeaderCount = 0;
+        }
 
         //// check for DRAW_INSTRUCTION header.
         if (!serialInstructionStarted)
