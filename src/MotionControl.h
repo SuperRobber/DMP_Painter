@@ -1,15 +1,10 @@
 /// TODO:
-///
-/// 1. Better SLEEP FUNCTION
-/// SetCurrent() calls setTMC262Register from inside interrupt.
-/// (requestAwake ? is Awake ? some shared flags ?)
-/// Make sure we do not set 'in motion'.
+
+/// 1. CHECK / REVISIT Motor status, for possible breaking errors that need to halt entire machine.
+
 ///
 /// 2. Add status from M4 and M5
-///
-/// 3. refactor Draw StateMachine
-///
-/// 4. check calculate straightline ? not setting delta
+
 ///
 /// 5. Separate Configuration // Hardware setup to another file ?
 ///
@@ -21,13 +16,20 @@
 #include "RoboTimer.h"
 #include "TMC_Registers.h"
 
-#define XMAX 1100000 // total X steps +- 1127620 | margin (13581)
-#define YMAX 1568000 // total Y steps +- 1595169 | margin (13581)
+#define XMAX 1113600 // total X steps +- 1127620 | margin (2x 6400)  870mm
+#define YMAX 1574400 // total Y steps +- 1588400 | margin (2x 6400) 1230mm
 
-/// @brief Union to convconsole.log('ert int64 to byteArray.
+/// @brief Union to convert int64 to byteArray.
 union byte64
 {
     int64_t value;
+    byte bytes[8];
+};
+
+/// @brief Union to convert uint64 to byteArray.
+union ubyte64
+{
+    uint64_t value;
     byte bytes[8];
 };
 
@@ -42,33 +44,67 @@ struct DrawInstruction
 {
     int64_t index;
     uint8_t type;
+    uint8_t acceleration;
     int8_t dirX;
     int8_t dirY;
+    int8_t dirZ;
+    uint8_t projection;
+    uint8_t groupIndex;
+    uint8_t groupSize;
     int64_t startX;
     int64_t startY;
+    int64_t startZ;
     int64_t endX;
     int64_t endY;
+    int64_t endZ;
     int64_t deltaX;
     int64_t deltaY;
+    int64_t deltaZ;
     int64_t deltaXX;
     int64_t deltaYY;
+    int64_t deltaZZ;
     int64_t deltaXY;
+    int64_t deltaXZ;
+    int64_t deltaYZ;
+    int64_t deltaMax;
     int64_t error;
-    int64_t steps;
+    int64_t errorX;
+    int64_t errorY;
+    int64_t errorZ;
+    double steps;
+    double step;
 };
 
-struct MoveInstruction
+struct DrawAction
+{
+    int64_t deltaX;
+    int64_t deltaY;
+    int64_t deltaZ;
+    int64_t deltaMax;
+    int64_t error;
+    int64_t errorX;
+    int64_t errorY;
+    int64_t errorZ;
+    double step;
+    bool endStage;
+    double t;
+};
+
+struct MoveAction
 {
     int8_t dirX;
     int8_t dirY;
+    int8_t dirZ;
     int64_t endX;
     int64_t endY;
+    int64_t endZ;
     int64_t deltaX;
     int64_t deltaY;
     int64_t error;
     double steps;
     double step;
 };
+
 
 // ===================== Machines task switching & State Machines =====================
 
@@ -84,7 +120,27 @@ enum class Mode
     EOL,
     Reset,
     MapHeight,
-    ClearHeight
+    ClearHeight,
+    Zero,
+    XUp,
+    XDown,
+    SetXStart,
+    YUp,
+    YDown,
+    SetYStart,
+    ZUp,
+    ZDown,
+    SetPenUp,
+    PenUpPlus,
+    PenUpMinus,
+    SetPenMin,
+    PenMinPlus,
+    PenMinMinus,
+    SetPenMax,
+    PenMaxPlus,
+    PenMaxMinus,
+    Store,
+    Recall
 };
 
 /// @brief State Machine used for drawing lines.
@@ -92,7 +148,8 @@ enum class DrawState
 {
     None,
     Choose,
-    Move,
+    MoveXY,
+    MoveZ,
     Draw
 };
 
@@ -105,16 +162,50 @@ enum class HomeState
     Done
 };
 
+/// @brief State Machine used for zero-ing.
+enum class ZeroState
+{
+    None,
+    Choose,    
+    MoveXY,
+    MoveZ,
+};
+
 /// @brief State Machine used for building a heightMap.
 enum class MapHeightState
 {
     None,
     Choose,
     MoveUp,
+    MoveZero,
     StartMoveXY,
     MoveXY,
-    MoveDown,
+    // MoveDown, // no longer used
     Done
+};
+
+/// @brief State Machine used for setting brush Left/Right
+enum class XState
+{
+    None,
+    Choose,    
+    Move,
+};
+
+/// @brief State Machine used for setting brush Forward/Back
+enum class YState
+{
+    None,
+    Choose,    
+    Move,
+};
+
+/// @brief State Machine used for setting brush Up/Down
+enum class ZState
+{
+    None,
+    Choose,    
+    Move,
 };
 
 extern volatile Mode activeMode;
@@ -138,14 +229,6 @@ extern volatile int64_t requestedInstruction;
 
 /// @brief Index for last received Instruction
 extern volatile int64_t receivedInstruction;
-
-// ===================== Height Mapping algorithm. =====================
-
-#define HeightMapWidth 5
-#define HeightMapHeight 8
-#define HeightMapSize 40
-
-extern volatile int64_t HeightMap[];
 
 /// ===================== Limit switch states =====================
 
@@ -173,7 +256,9 @@ extern volatile int64_t HeightMap[];
 #define swZStart 7
 #define swZEnd 8
 
-const int numSwitches = 9;
+/// ===================== Limit switches =====================
+
+#define numSwitches 9
 
 struct LimitSwitch
 {
@@ -185,8 +270,11 @@ struct LimitSwitch
 
 extern volatile LimitSwitch switches[];
 
-/// =====================  Status  =====================
+/// ===================== OD-Mini Height Sensor =====================
 
+extern volatile int32_t heightMeasurement;
+
+/// =====================  Status  =====================
 
 enum class StatusFunction {
     Idle = 0,
@@ -220,22 +308,23 @@ extern TMC262::STATUS status_M3;
 
 /// ===================== Motion Control =====================
 
-/// motor position (global for status display)
-
-// struct Stepper
-// {
-//     int32_t pos;
-//     int8_t direction;
-//     bool step;
-// };
-
-// extern volatile Stepper motors[];
-
 extern volatile int32_t M1_pos;
 extern volatile int32_t M2_pos;
 extern volatile int32_t M3_pos;
 extern volatile int32_t M4_pos;
 extern volatile int32_t M5_pos;
+
+extern volatile int32_t posZMotor;
+extern volatile int64_t posZDraw;
+
+extern volatile int32_t posZUp;
+extern volatile int32_t posZDrawMin;
+extern volatile int32_t posZDrawMax;
+
+extern volatile int64_t posXDraw;
+extern volatile int32_t posXStart;
+extern volatile int64_t posYDraw;
+extern volatile int32_t posYStart;
 
 /// ===================== FUNCTIONS that are part of the interrupt loop (FASTRUN) =====================
 
@@ -250,13 +339,34 @@ FASTRUN void MachineLoop();
 // FASTRUN void CalculateHomeSteps();
 
 /// @brief The drawing algorithm.
-FASTRUN void CalculateDrawSteps();
-
-/// @brief The drawing algorithm.
 FASTRUN void Draw();
 
 /// @brief The homing algorithm.
 FASTRUN void Home();
+
+/// @brief The Zero algorithm.
+FASTRUN void Zero();
+
+/// @brief Move Brush Left
+FASTRUN void XUp();
+
+/// @brief Move Brush Right
+FASTRUN void XDown();
+
+/// @brief Move Brush Back
+FASTRUN void YUp();
+
+/// @brief Move Brush Forward
+FASTRUN void YDown();
+
+/// @brief Move Brush Up
+FASTRUN void ZUp();
+
+/// @brief Move Brush Down
+FASTRUN void ZDown();
+
+/// @brief The Zero algorithm.
+FASTRUN void Zero();
 
 /// @brief The height mapping algorithm.
 FASTRUN void MapHeight();
@@ -271,6 +381,7 @@ FASTRUN void StepMotors();
 /// @attention FASTRUN in interrupt
 /// @return
 FASTRUN void SetDirectionsAndLimits();
+FASTRUN void SetHomeDirectionsAndLimits();
 
 /// @brief Debouncing of Limit switches.
 /// Fast press and slow release debounce.
@@ -288,7 +399,11 @@ FASTRUN void StepY(int8_t dir);
 
 /// @brief Prepare a step in Z direction
 /// @param dir positive or negative Z direction
-FASTRUN void StepZ(int8_t dir);
+FASTRUN void StepZ(int8_t dxir);
+
+/// @brief Prepare a drawstep in Z direction with a possible height error compensation
+/// @param dir positive or negative Z direction
+FASTRUN void StepZDraw(int8_t dir);
 
 /// @brief Manually set current scale on Stepper Motors
 /// @param cur 0 - 31 current scale
@@ -296,9 +411,13 @@ FASTRUN void setCurrent(int cur);
 
 /// @brief Draw / Step in a straight Line
 FASTRUN void CalculateStraightLine();
+FASTRUN void CalculateStraightLine3D();
 
 /// @brief Draw / Step along a Quadratic Bezier
 FASTRUN void CalculateQuadBezier();
+FASTRUN void CalculateQuadBezier3DXY();
+FASTRUN void CalculateQuadBezier3DXZ();
+FASTRUN void CalculateQuadBezier3DYZ();
 
 /// ===================== FUNCTIONS not part of the interrupt loop =====================
 

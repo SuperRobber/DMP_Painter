@@ -3,6 +3,7 @@
 
 #include "MotionControl.h"
 
+elapsedMicros heightTimer;
 elapsedMillis disconnectTimer;
 elapsedMillis statusTimer;
 elapsedMillis requestTimer;
@@ -19,7 +20,7 @@ int32_t powerSenseData = 0;
 /// Incoming serial data can consist of either commands or drawing instructions.
 
 /// A custom serial binary protocol is used (bytes instead of chars) and
-/// used a 10byte command header with additional data if data is a
+/// consists of a 10byte command header with additional data if data is a
 /// drawing instruction.
 
 /// 10 byte header indicating a command (mode) or drawInstruction data
@@ -28,9 +29,10 @@ int32_t powerSenseData = 0;
 /// DRAW command                (10 x 0xF1)
 /// RESET command               (10 x 0xF2)
 /// MAPHEIGHT command           (10 x 0xF3)
-/// STOP command               (10 x 0xF4)
+/// STOP command                (10 x 0xF4)
 /// EOL command                 (10 x 0xF5)
 /// CLEARHEIGHT command         (10 x 0xF6)
+/// ZERO command         (10 x 0xF7)
 /// DRAWINSTRUCTION command     (10 x 0xFF)
 
 /// DrawInstruction:
@@ -48,7 +50,27 @@ enum command
     BYTE_STOP = 0xF4,
     BYTE_EOL = 0xF5,
     BYTE_CLEARHEIGHT = 0xF6,
-    BYTE_DRAW_INSTRUCTION = 0xFF
+    BYTE_ZERO = 0xF7,
+    BYTE_ZUP = 0xF8,
+    BYTE_ZDOWN = 0xF9,
+    BYTE_SETPENUP = 0xFA,
+    BYTE_SETPENMIN = 0xFB,
+    BYTE_SETPENMAX = 0xFC,
+    BYTE_DRAW_INSTRUCTION = 0xFF,
+    BYTE_PENUPPLUS = 0xE0,
+    BYTE_PENUPMINUS = 0xE1,
+    BYTE_PENMINPLUS = 0xE2,
+    BYTE_PENMINMINUS = 0xE3,
+    BYTE_PENMAXPLUS = 0xE4,
+    BYTE_PENMAXMINUS = 0xE5,
+    BYTE_XUP = 0xE6,
+    BYTE_XDOWN = 0xE7,
+    BYTE_SETXSTART = 0xE8,
+    BYTE_YUP = 0xE9,
+    BYTE_YDOWN = 0xEA,
+    BYTE_SETYSTART = 0xEB,
+    BYTE_STORE = 0xEC,
+    BYTE_RECALL = 0xED
 };
 
 /// ===================== Serial protocol =====================
@@ -71,13 +93,63 @@ int serialClearHeightMapHeaderCount = 0;
 int serialResetHeaderCount = 0;
 int serialDrawHeaderCount = 0;
 int serialEOLHeaderCount = 0;
+int serialZeroHeaderCount = 0;
+
+int serialSetPenUpHeaderCount = 0;
+int serialPenUpPlusHeaderCount = 0;
+int serialPenUpMinusHeaderCount = 0;
+
+int serialSetPenMinHeaderCount = 0;
+int serialPenMinPlusHeaderCount = 0;
+int serialPenMinMinusHeaderCount = 0;
+
+int serialSetPenMaxHeaderCount = 0;
+int serialPenMaxPlusHeaderCount = 0;
+int serialPenMaxMinusHeaderCount = 0;
+
+int serialXUpHeaderCount = 0;
+int serialXDownHeaderCount = 0;
+int serialSetXStartHeaderCount = 0;
+int serialYUpHeaderCount = 0;
+int serialYDownHeaderCount = 0;
+int serialSetYStartHeaderCount = 0;
+int serialZUpHeaderCount = 0;
+int serialZDownHeaderCount = 0;
+
+int serialStoreHeaderCount = 0;
+int serialRecallHeaderCount = 0;
 
 void getSerial(int bytesToRead);
+
+/// ===================== ODMini Sensor =====================
+
+int ODMiniRWPin = 15;
+#define ODMiniSerial Serial4
+bool ODReceived = false;
+uint32_t ODErrors = 0;
+
+union ODMiniValue
+{
+    int16_t value;
+    byte bytes[2];
+};
+
+ODMiniValue ODMeasurement;
+uint8_t ODMiniSendBuffer[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+uint8_t ODMiniMeasureBuffer[6] = {0x02, 0x43, 0xB0, 0x01, 0x03, 0xF2};
+uint8_t ODMiniReceiveBuffer[6] = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
 
 /// ===================== setup - Configure and initialise hardware. =====================
 
 void setup()
 {
+    // OD Mini Sensor
+    pinMode(ODMiniRWPin, OUTPUT);
+    digitalWriteFast(ODMiniRWPin, LOW);
+    ODMiniSerial.begin(1250000);
+    ODMiniSerial.transmitterEnable(ODMiniRWPin);
+    ODMiniSerial.setTimeout(1);
+
     Serial.begin(115200);
 
     pinMode(powerSenseCSPin, OUTPUT);
@@ -98,6 +170,44 @@ void setup()
 
 void loop()
 {
+    // Read new data from ODMini height sensor.
+    if (ODMiniSerial.available() >= 6)
+    {
+        if (ODMiniSerial.readBytes(ODMiniReceiveBuffer, 6) < 6)
+        {
+            Serial.println("OD Mini Timeout!");
+        }
+        else
+        {
+            if (ODMiniReceiveBuffer[1] == 6) // ACK
+            {
+                ODMeasurement.bytes[0] = ODMiniReceiveBuffer[3];
+                ODMeasurement.bytes[1] = ODMiniReceiveBuffer[2];
+                heightMeasurement = ODMeasurement.value;
+                ODReceived = true;
+            }
+        }
+    }
+
+    if (heightTimer > 2000)
+    {
+        if (ODReceived)
+        {
+            // Request data from ODMini height sensor.
+            ODReceived = false;
+            heightTimer = 0;
+            ODMiniSerial.write(ODMiniMeasureBuffer, 6);
+        }
+        else
+        {
+            // Data lost or overflow?
+            // Request data from ODMini height sensor.
+            ODErrors++;
+            heightTimer = 0;
+            ODMiniSerial.clear();
+            ODMiniSerial.write(ODMiniMeasureBuffer, 6);
+        }
+    }
 
     /// Connected to the Loader program?
     if (Serial.dtr())
@@ -111,7 +221,7 @@ void loop()
             getSerial(bytesToRead);
         }
 
-        if (activeMode == Mode::Draw && requestedMode != Mode::EOL)
+        if (activeMode == Mode::Draw && requestedMode != Mode::EOL && requestedMode != Mode::Stop)
         {
             /// Request draw instructions if there is room in the buffer. If the
             /// buffer is full, skip and wait for drawing to advance, before
@@ -188,9 +298,23 @@ void loop()
                 status += String(switches[s].pressed);
                 status += "$";
             }
-            status += (int) statusFunction;
+            status += (int)statusFunction;
             status += "$";
             status += drawIndex;
+            status += "$";
+            status += heightMeasurement;
+            status += "$";
+            status += String(ODErrors);
+            status += "$";
+            status += String(posZUp);
+            status += "$";
+            status += String(posZDrawMin);
+            status += "$";
+            status += String(posZDrawMax);
+            status += "$";
+            status += String(posXStart);
+            status += "$";
+            status += String(posYStart);
             status += "$";
 
             /// Send status to Loader program.
@@ -333,6 +457,314 @@ void getSerial(int bytesToRead)
             serialClearHeightMapHeaderCount = 0;
         }
 
+        //// Check for ZERO command header.
+        if (byteBuffer[i] == command::BYTE_ZERO)
+        {
+            serialZeroHeaderCount++;
+            if (serialZeroHeaderCount == 10)
+            {
+                Serial.println("Received Zero command");
+                requestedMode = Mode::Zero;
+                serialZeroHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialZeroHeaderCount = 0;
+        }
+
+        /// Check for XUp command header.
+        if (byteBuffer[i] == command::BYTE_XUP)
+        {
+            serialXUpHeaderCount++;
+            if (serialXUpHeaderCount == 10)
+            {
+                requestedMode = Mode::XUp;
+                serialXUpHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialXUpHeaderCount = 0;
+        }
+
+        /// Check for XDown command header.
+        if (byteBuffer[i] == command::BYTE_XDOWN)
+        {
+            serialXDownHeaderCount++;
+            if (serialXDownHeaderCount == 10)
+            {
+                requestedMode = Mode::XDown;
+                serialXDownHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialXDownHeaderCount = 0;
+        }
+
+        /// Check for SetXStart command header.
+        if (byteBuffer[i] == command::BYTE_SETXSTART)
+        {
+            serialSetXStartHeaderCount++;
+            if (serialSetXStartHeaderCount == 10)
+            {
+                Serial.println("Received SetYXtart command");
+                requestedMode = Mode::SetXStart;
+                serialSetXStartHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialSetXStartHeaderCount = 0;
+        }
+
+        /// Check for YUp command header.
+        if (byteBuffer[i] == command::BYTE_YUP)
+        {
+            serialYUpHeaderCount++;
+            if (serialYUpHeaderCount == 10)
+            {
+                requestedMode = Mode::YUp;
+                serialYUpHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialYUpHeaderCount = 0;
+        }
+
+        /// Check for YDown command header.
+        if (byteBuffer[i] == command::BYTE_YDOWN)
+        {
+            serialYDownHeaderCount++;
+            if (serialYDownHeaderCount == 10)
+            {
+                requestedMode = Mode::YDown;
+                serialYDownHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialYDownHeaderCount = 0;
+        }
+
+        /// Check for SetYStart command header.
+        if (byteBuffer[i] == command::BYTE_SETYSTART)
+        {
+            serialSetYStartHeaderCount++;
+            if (serialSetYStartHeaderCount == 10)
+            {
+                Serial.println("Received SetYStart command");
+                requestedMode = Mode::SetYStart;
+                serialSetYStartHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialSetYStartHeaderCount = 0;
+        }
+
+        /// Check for ZUp command header.
+        if (byteBuffer[i] == command::BYTE_ZUP)
+        {
+            serialZUpHeaderCount++;
+            if (serialZUpHeaderCount == 10)
+            {
+                requestedMode = Mode::ZUp;
+                serialZUpHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialZUpHeaderCount = 0;
+        }
+
+        /// Check for ZDown command header.
+        if (byteBuffer[i] == command::BYTE_ZDOWN)
+        {
+            serialZDownHeaderCount++;
+            if (serialZDownHeaderCount == 10)
+            {
+                requestedMode = Mode::ZDown;
+                serialZDownHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialZDownHeaderCount = 0;
+        }
+
+        /// Check for SetPenUp command header.
+        if (byteBuffer[i] == command::BYTE_SETPENUP)
+        {
+            serialSetPenUpHeaderCount++;
+            if (serialSetPenUpHeaderCount == 10)
+            {
+                Serial.println("Received SetPenUp command");
+                requestedMode = Mode::SetPenUp;
+                serialSetPenUpHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialSetPenUpHeaderCount = 0;
+        }
+
+        /// Check for PenUpPlus command header.
+        if (byteBuffer[i] == command::BYTE_PENUPPLUS)
+        {
+            serialPenUpPlusHeaderCount++;
+            if (serialPenUpPlusHeaderCount == 10)
+            {
+                requestedMode = Mode::PenUpPlus;
+                serialPenUpPlusHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialPenUpPlusHeaderCount = 0;
+        }
+
+        /// Check for PenUpMinus command header.
+        if (byteBuffer[i] == command::BYTE_PENUPMINUS)
+        {
+            serialPenUpMinusHeaderCount++;
+            if (serialPenUpMinusHeaderCount == 10)
+            {
+                requestedMode = Mode::PenUpMinus;
+                serialPenUpMinusHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialPenUpMinusHeaderCount = 0;
+        }
+
+        /// Check for SetPenMin command header.
+        if (byteBuffer[i] == command::BYTE_SETPENMIN)
+        {
+            serialSetPenMinHeaderCount++;
+            if (serialSetPenMinHeaderCount == 10)
+            {
+                Serial.println("Received SetPenMin command");
+                requestedMode = Mode::SetPenMin;
+                serialSetPenMinHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialSetPenMinHeaderCount = 0;
+        }
+
+        /// Check for PenMinPlus command header.
+        if (byteBuffer[i] == command::BYTE_PENMINPLUS)
+        {
+            serialPenMinPlusHeaderCount++;
+            if (serialPenMinPlusHeaderCount == 10)
+            {
+                requestedMode = Mode::PenMinPlus;
+                serialPenMinPlusHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialPenMinPlusHeaderCount = 0;
+        }
+
+        /// Check for PenMinMinus command header.
+        if (byteBuffer[i] == command::BYTE_PENMINMINUS)
+        {
+            serialPenMinMinusHeaderCount++;
+            if (serialPenMinMinusHeaderCount == 10)
+            {
+                requestedMode = Mode::PenMinMinus;
+                serialPenMinMinusHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialPenMinMinusHeaderCount = 0;
+        }
+
+        /// Check for SetPenMax command header.
+        if (byteBuffer[i] == command::BYTE_SETPENMAX)
+        {
+            serialSetPenMaxHeaderCount++;
+            if (serialSetPenMaxHeaderCount == 10)
+            {
+                Serial.println("Received SetPenMax command");
+                requestedMode = Mode::SetPenMax;
+                serialSetPenMaxHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialSetPenMaxHeaderCount = 0;
+        }
+
+        /// Check for PenMaxPlus command header.
+        if (byteBuffer[i] == command::BYTE_PENMAXPLUS)
+        {
+            serialPenMaxPlusHeaderCount++;
+            if (serialPenMaxPlusHeaderCount == 10)
+            {
+                requestedMode = Mode::PenMaxPlus;
+                serialPenMaxPlusHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialPenMaxPlusHeaderCount = 0;
+        }
+
+        /// Check for PenMaxMinus command header.
+        if (byteBuffer[i] == command::BYTE_PENMAXMINUS)
+        {
+            serialPenMaxMinusHeaderCount++;
+            if (serialPenMaxMinusHeaderCount == 10)
+            {
+                requestedMode = Mode::PenMaxMinus;
+                serialPenMaxMinusHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialPenMaxMinusHeaderCount = 0;
+        }
+
+        /// Check for Store command header.
+        if (byteBuffer[i] == command::BYTE_STORE)
+        {
+            serialStoreHeaderCount++;
+            if (serialStoreHeaderCount == 10)
+            {
+                Serial.println("Received Store command");
+                requestedMode = Mode::Store;
+                serialStoreHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialStoreHeaderCount = 0;
+        }
+
+        /// Check for Recall command header.
+        if (byteBuffer[i] == command::BYTE_RECALL)
+        {
+            serialRecallHeaderCount++;
+            if (serialRecallHeaderCount == 10)
+            {
+                Serial.println("Received Recall command");
+                requestedMode = Mode::Recall;
+                serialRecallHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialRecallHeaderCount = 0;
+        }
+
         //// check for DRAW_INSTRUCTION header.
         if (!serialInstructionStarted)
         {
@@ -405,34 +837,60 @@ void getSerial(int bytesToRead)
 
                             /// A byte64 union is used to convert 8 bytes to int64.
                             byte64 b64 = {};
+                            ubyte64 u64 = {};
 
-                            memcpy(b64.bytes, serialMessageData, 8);
-                            iBuffer[iBufferWriteIndex].index = b64.value;
+                            memcpy(u64.bytes, serialMessageData, 8);
+                            iBuffer[iBufferWriteIndex].index = u64.value;
                             iBuffer[iBufferWriteIndex].type = serialMessageData[9];
-                            iBuffer[iBufferWriteIndex].dirX = serialMessageData[11];
-                            iBuffer[iBufferWriteIndex].dirY = serialMessageData[13];
-                            memcpy(b64.bytes, serialMessageData + 15, 8);
+                            iBuffer[iBufferWriteIndex].acceleration = serialMessageData[11];
+                            iBuffer[iBufferWriteIndex].dirX = serialMessageData[13];
+                            iBuffer[iBufferWriteIndex].dirY = serialMessageData[15];
+                            iBuffer[iBufferWriteIndex].dirZ = serialMessageData[17];
+                            iBuffer[iBufferWriteIndex].projection = serialMessageData[19];
+                            iBuffer[iBufferWriteIndex].groupIndex = serialMessageData[21];
+                            iBuffer[iBufferWriteIndex].groupSize = serialMessageData[23];
+                            memcpy(b64.bytes, serialMessageData + 25, 8);
                             iBuffer[iBufferWriteIndex].startX = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 24, 8);
+                            memcpy(b64.bytes, serialMessageData + 34, 8);
                             iBuffer[iBufferWriteIndex].startY = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 33, 8);
+                            memcpy(b64.bytes, serialMessageData + 43, 8);
+                            iBuffer[iBufferWriteIndex].startZ = b64.value;
+                            memcpy(b64.bytes, serialMessageData + 52, 8);
                             iBuffer[iBufferWriteIndex].endX = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 42, 8);
+                            memcpy(b64.bytes, serialMessageData + 61, 8);
                             iBuffer[iBufferWriteIndex].endY = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 51, 8);
+                            memcpy(b64.bytes, serialMessageData + 70, 8);
+                            iBuffer[iBufferWriteIndex].endZ = b64.value;
+                            memcpy(b64.bytes, serialMessageData + 79, 8);
                             iBuffer[iBufferWriteIndex].deltaX = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 60, 8);
+                            memcpy(b64.bytes, serialMessageData + 88, 8);
                             iBuffer[iBufferWriteIndex].deltaY = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 69, 8);
+                            memcpy(b64.bytes, serialMessageData + 97, 8);
+                            iBuffer[iBufferWriteIndex].deltaZ = b64.value;
+                            memcpy(b64.bytes, serialMessageData + 106, 8);
                             iBuffer[iBufferWriteIndex].deltaXX = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 78, 8);
+                            memcpy(b64.bytes, serialMessageData + 115, 8);
                             iBuffer[iBufferWriteIndex].deltaYY = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 87, 8);
+                            memcpy(b64.bytes, serialMessageData + 124, 8);
+                            iBuffer[iBufferWriteIndex].deltaZZ = b64.value;
+                            memcpy(b64.bytes, serialMessageData + 133, 8);
                             iBuffer[iBufferWriteIndex].deltaXY = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 96, 8);
+                            memcpy(b64.bytes, serialMessageData + 142, 8);
+                            iBuffer[iBufferWriteIndex].deltaXZ = b64.value;
+                            memcpy(b64.bytes, serialMessageData + 151, 8);
+                            iBuffer[iBufferWriteIndex].deltaYZ = b64.value;
+                            memcpy(b64.bytes, serialMessageData + 160, 8);
+                            iBuffer[iBufferWriteIndex].deltaMax = b64.value;
+                            memcpy(b64.bytes, serialMessageData + 169, 8);
                             iBuffer[iBufferWriteIndex].error = b64.value;
-                            memcpy(b64.bytes, serialMessageData + 105, 8);
-                            iBuffer[iBufferWriteIndex].steps = b64.value;
+                            memcpy(b64.bytes, serialMessageData + 178, 8);
+                            iBuffer[iBufferWriteIndex].errorX = b64.value;
+                            memcpy(b64.bytes, serialMessageData + 187, 8);
+                            iBuffer[iBufferWriteIndex].errorY = b64.value;
+                            memcpy(b64.bytes, serialMessageData + 196, 8);
+                            iBuffer[iBufferWriteIndex].errorZ = b64.value;
+                            memcpy(u64.bytes, serialMessageData + 205, 8);
+                            iBuffer[iBufferWriteIndex].steps = (double)u64.value;
 
                             // Increment the bufferWriteIndex for an upcoming instruction.
                             iBufferWriteIndex = (iBufferWriteIndex + 1) & 63;

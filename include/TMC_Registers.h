@@ -181,7 +181,7 @@ namespace TMC262
     BitField<18, 2> address;             // Register Address
     BitField<9, 1> interpolation;        // 0: Disable Step interpolation | 1: Enable Microplyer step pulse multiplication by 16
     BitField<8, 1> double_edge_step;     // 0: Rising edge=active, Falling edge=inactive | 1: both rising and falling edge trigger a step
-    BitField<0, 4> microstep_resolition; // 1000: FULLSTEP | 0111: halfstep ... 0000: 256 microsteps
+    BitField<0, 4> microstep_resolution; // 1000: FULLSTEP | 0111: halfstep ... 0000: 256 microsteps
   };
 }
 
