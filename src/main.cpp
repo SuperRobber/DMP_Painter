@@ -70,7 +70,10 @@ enum command
     BYTE_YDOWN = 0xEA,
     BYTE_SETYSTART = 0xEB,
     BYTE_STORE = 0xEC,
-    BYTE_RECALL = 0xED
+    BYTE_RECALL = 0xED,
+    BYTE_END = 0xEE,
+    BYTE_COURSE= 0xD0,
+    BYTE_FINE=0xD1
 };
 
 /// ===================== Serial protocol =====================
@@ -118,6 +121,9 @@ int serialZDownHeaderCount = 0;
 
 int serialStoreHeaderCount = 0;
 int serialRecallHeaderCount = 0;
+
+int serialCourseHeaderCount = 0;
+int serialFineHeaderCount = 0;
 
 void getSerial(int bytesToRead);
 
@@ -315,6 +321,8 @@ void loop()
             status += String(posXStart);
             status += "$";
             status += String(posYStart);
+            status += "$";
+            status += String(isFine);
             status += "$";
 
             /// Send status to Loader program.
@@ -765,6 +773,35 @@ void getSerial(int bytesToRead)
             serialRecallHeaderCount = 0;
         }
 
+        /// Check for Course command header.
+        if (byteBuffer[i] == command::BYTE_COURSE)
+        {
+            serialCourseHeaderCount++;
+            if (serialCourseHeaderCount == 10)
+            {
+                isFine = false;
+                serialCourseHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialCourseHeaderCount = 0;
+        }
+
+        /// Check for Course command header.
+        if (byteBuffer[i] == command::BYTE_FINE)
+        {
+            serialFineHeaderCount++;
+            if (serialFineHeaderCount == 10)
+            {
+                isFine = true;
+                serialFineHeaderCount = 0;
+            }
+        }
+        else
+        {
+            serialFineHeaderCount = 0;
+        }
         //// check for DRAW_INSTRUCTION header.
         if (!serialInstructionStarted)
         {

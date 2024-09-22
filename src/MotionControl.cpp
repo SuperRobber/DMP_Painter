@@ -135,6 +135,9 @@ volatile int32_t posZUp = 0;      // position for pen up
 volatile int32_t posZDrawMin = 0; // position for pen minumum (touching)
 volatile int32_t posZDrawMax = 0; // position for pen maximum (full pressure)
 
+volatile bool isFine = true; // For manual control big/small steps
+
+
 /// Hardware interrupt (PIR) TIMER triggering MachineLoop Interrupt.
 RoboTimer IRQTimer;
 
@@ -826,7 +829,13 @@ FASTRUN void XUp()
     }
     case (XState::Choose):
     {
-        move.endX = M3_pos - 20;
+        if (isFine)
+        {
+            move.endX = M3_pos - 20;
+        } else
+        {
+            move.endX = M3_pos - 2000;
+        }
         requestedMode = Mode::None;
         xState = XState::Move;
         break;
@@ -866,7 +875,12 @@ FASTRUN void XUp()
         }
 
         SetDirectionsAndLimits();
-        machineSpeed = homeSpeed * 4;
+        if (isFine) {
+            machineSpeed = homeSpeed * 4;
+        } else {
+            machineSpeed = homeSpeed * 1;
+        }
+
         break;
     }
     }
@@ -882,7 +896,13 @@ FASTRUN void XDown()
     }
     case (XState::Choose):
     {
-        move.endX = M3_pos + 20;
+        if (isFine)
+        {
+            move.endX = M3_pos + 20;
+        } else
+        {
+            move.endX = M3_pos + 2000;
+        }
         requestedMode = Mode::None;
         xState = XState::Move;
         break;
@@ -922,7 +942,12 @@ FASTRUN void XDown()
         }
 
         SetDirectionsAndLimits();
-        machineSpeed = homeSpeed * 4;
+        if (isFine) {
+            machineSpeed = homeSpeed * 4;
+        } else {
+            machineSpeed = homeSpeed * 1;
+        }
+
         break;
     }
     }
@@ -938,7 +963,13 @@ FASTRUN void YUp()
     }
     case (YState::Choose):
     {
-        move.endY = M1_pos - 20;
+        if (isFine)
+        {
+            move.endY = M1_pos - 20;
+        } else
+        {
+            move.endY = M1_pos - 2000;
+        }
         requestedMode = Mode::None;
         yState = YState::Move;
         break;
@@ -989,7 +1020,12 @@ FASTRUN void YUp()
         }
 
         SetDirectionsAndLimits();
-        machineSpeed = homeSpeed * 4;
+        if (isFine) {
+            machineSpeed = homeSpeed * 4;
+        } else {
+            machineSpeed = homeSpeed * 1;
+        }
+
         break;
     }
     }
@@ -1005,7 +1041,13 @@ FASTRUN void YDown()
     }
     case (YState::Choose):
     {
-        move.endY = M1_pos + 20;
+        if (isFine)
+        {
+            move.endY = M1_pos + 20;
+        } else
+        {
+            move.endY = M1_pos + 2000;
+        }
         requestedMode = Mode::None;
         yState = YState::Move;
         break;
@@ -1056,7 +1098,12 @@ FASTRUN void YDown()
         }
 
         SetDirectionsAndLimits();
-        machineSpeed = homeSpeed * 4;
+        if (isFine) {
+            machineSpeed = homeSpeed * 4;
+        } else {
+            machineSpeed = homeSpeed * 1;
+        }
+
         break;
     }
     }
@@ -1072,7 +1119,11 @@ FASTRUN void ZUp()
     }
     case (ZState::Choose):
     {
-        move.endZ = M4_pos - 20;
+        if (isFine) {
+            move.endZ = M4_pos - 20;
+        } else {
+            move.endZ = M4_pos - 200;
+        }
         requestedMode = Mode::None;
         zState = ZState::Move;
         break;
@@ -1112,7 +1163,11 @@ FASTRUN void ZUp()
         }
 
         SetDirectionsAndLimits();
-        machineSpeed = homeSpeed * 4;
+        if (isFine) {
+            machineSpeed = homeSpeed * 4;
+        } else {
+            machineSpeed = homeSpeed * 2;
+        }
         break;
     }
     }
@@ -1128,7 +1183,11 @@ FASTRUN void ZDown()
     }
     case (ZState::Choose):
     {
-        move.endZ = M4_pos + 20;
+        if (isFine) {
+            move.endZ = M4_pos + 20;
+        } else {
+            move.endZ = M4_pos + 200;
+        }
         requestedMode = Mode::None;
         zState = ZState::Move;
         break;
@@ -1168,7 +1227,11 @@ FASTRUN void ZDown()
         }
 
         SetDirectionsAndLimits();
-        machineSpeed = homeSpeed * 4;
+        if (isFine) {
+            machineSpeed = homeSpeed * 4;
+        } else {
+            machineSpeed = homeSpeed * 2;
+        }
         break;
     }
     }

@@ -326,6 +326,8 @@ extern volatile int32_t posXStart;
 extern volatile int64_t posYDraw;
 extern volatile int32_t posYStart;
 
+extern volatile bool isFine; // For manual control big/small steps
+
 /// ===================== FUNCTIONS that are part of the interrupt loop (FASTRUN) =====================
 
 /// @brief The main motion control loop. Called via interrupt timer. To move as
