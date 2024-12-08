@@ -324,7 +324,55 @@ void loop()
             status += "$";
             status += String(isFine);
             status += "$";
-
+            status += String((bool)status_M1.OpenLoad_A);
+            status += "$";
+            status += String((bool)status_M2.OpenLoad_A);
+            status += "$";
+            status += String((bool)status_M3.OpenLoad_A);
+            status += "$";
+            status += String((bool)status_M1.OpenLoad_B);
+            status += "$";
+            status += String((bool)status_M2.OpenLoad_B);
+            status += "$";
+            status += String((bool)status_M3.OpenLoad_B);
+            status += "$";    
+            status += String((bool)status_M1.Stalled);
+            status += "$";
+            status += String((bool)status_M2.Stalled);
+            status += "$";
+            status += String((bool)status_M3.Stalled);
+            status += "$";   
+            status += String((bool)status_M1.StandStill);
+            status += "$";
+            status += String((bool)status_M2.StandStill);
+            status += "$";
+            status += String((bool)status_M3.StandStill);
+            status += "$";      
+            status += String((bool)status_M1.Short_A);
+            status += "$";
+            status += String((bool)status_M2.Short_A);
+            status += "$";
+            status += String((bool)status_M3.Short_A);
+            status += "$";                                      
+            status += String((bool)status_M1.Short_B);
+            status += "$";
+            status += String((bool)status_M2.Short_B);
+            status += "$";
+            status += String((bool)status_M3.Short_B);
+            status += "$";     
+            status += String((bool)status_M1.OverTemp_Warning);
+            status += "$";
+            status += String((bool)status_M2.OverTemp_Warning);
+            status += "$";
+            status += String((bool)status_M3.OverTemp_Warning);
+            status += "$";                 
+            status += String((bool)status_M1.OverTemp_Shutdown);
+            status += "$";
+            status += String((bool)status_M2.OverTemp_Shutdown);
+            status += "$";
+            status += String((bool)status_M3.OverTemp_Shutdown);
+            status += "$";        
+            /// Send status                     
             /// Send status to Loader program.
             Serial.println(status);
         }

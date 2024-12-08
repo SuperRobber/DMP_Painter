@@ -235,10 +235,10 @@ extern volatile int64_t receivedInstruction;
 /// Switch hardware pins
 
 #define pinPanic 23
-#define pinY1Start 36
-#define pinY1End 35
-#define pinY2Start 38
-#define pinY2End 37
+#define pinY1Start 35
+#define pinY1End 36
+#define pinY2Start 37
+#define pinY2End 38
 #define pinXStart 40
 #define pinXEnd 39
 #define pinZStart 41
@@ -407,9 +407,13 @@ FASTRUN void StepZ(int8_t dxir);
 /// @param dir positive or negative Z direction
 FASTRUN void StepZDraw(int8_t dir);
 
+/// @brief Set hardcoded current scale on Stepper Motors
+FASTRUN void setWorkCurrent();
+FASTRUN void setSleepCurrent();
+
 /// @brief Manually set current scale on Stepper Motors
 /// @param cur 0 - 31 current scale
-FASTRUN void setCurrent(int cur);
+// FASTRUN void setCurrent(int cur);
 
 /// @brief Draw / Step in a straight Line
 FASTRUN void CalculateStraightLine();

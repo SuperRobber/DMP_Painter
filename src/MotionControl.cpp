@@ -43,8 +43,8 @@ int HeightMapYTileSize = 0;
 /// ===================== Power Saving =====================
 
 volatile uint64_t sleepTimer = 0;
-const int workCurrent = 16;
-const int sleepCurrent = 2;
+// const int workCurrent = 12;
+// const int sleepCurrent = 3;
 volatile bool sleeping = false;
 
 /// ===================== Limit switches =====================
@@ -338,13 +338,13 @@ void StartUp()
     activeMode = Mode::None;
     requestedMode = Mode::None;
 
-    setCurrent(sleepCurrent);
+    setSleepCurrent();
 
     /// Enable stepper drivers
     digitalWriteFast(M1_M2_M3_ennPin, 0);
-    digitalWriteFast(M4_M5_enPin, 0);
+    // digitalWriteFast(M4_M5_enPin, 0);
 
-    setCurrent(workCurrent);
+    setWorkCurrent();
 
     delay(500);
 
@@ -580,7 +580,7 @@ FASTRUN void MachineLoop()
             if (sleepTimer > 500000)
             {
                 sleeping = true;
-                setCurrent(sleepCurrent);
+                setSleepCurrent();
                 statusFunction = StatusFunction::Idle;
             }
         }
@@ -589,7 +589,7 @@ FASTRUN void MachineLoop()
         {
             if (sleeping) /// Wake up
             {
-                setCurrent(workCurrent);
+                setWorkCurrent();
                 sleeping = false;
             }
             sleepTimer = 0;
@@ -613,7 +613,7 @@ FASTRUN void MachineLoop()
         {
             if (sleeping) /// Wake up
             {
-                setCurrent(workCurrent);
+                setWorkCurrent();
                 sleeping = false;
             }
             sleepTimer = 0;
@@ -627,7 +627,7 @@ FASTRUN void MachineLoop()
         {
             if (sleeping) /// Wake up
             {
-                setCurrent(workCurrent);
+                setWorkCurrent();
                 sleeping = false;
             }
             sleepTimer = 0;
@@ -641,7 +641,7 @@ FASTRUN void MachineLoop()
         {
             if (sleeping) /// Wake up
             {
-                setCurrent(workCurrent);
+                setWorkCurrent();
                 sleeping = false;
             }
             sleepTimer = 0;
@@ -664,7 +664,7 @@ FASTRUN void MachineLoop()
         {
             if (sleeping) /// Wake up
             {
-                setCurrent(workCurrent);
+                setWorkCurrent();
                 sleeping = false;
             }
             sleepTimer = 0;
@@ -677,7 +677,7 @@ FASTRUN void MachineLoop()
         {
             if (sleeping) /// Wake up
             {
-                setCurrent(workCurrent);
+                setWorkCurrent();
                 sleeping = false;
             }
             sleepTimer = 0;
@@ -690,7 +690,7 @@ FASTRUN void MachineLoop()
         {
             if (sleeping) /// Wake up
             {
-                setCurrent(workCurrent);
+                setWorkCurrent();
                 sleeping = false;
             }
             sleepTimer = 0;
@@ -703,7 +703,7 @@ FASTRUN void MachineLoop()
         {
             if (sleeping) /// Wake up
             {
-                setCurrent(workCurrent);
+                setWorkCurrent();
                 sleeping = false;
             }
             sleepTimer = 0;
@@ -716,7 +716,7 @@ FASTRUN void MachineLoop()
         {
             if (sleeping) /// Wake up
             {
-                setCurrent(workCurrent);
+                setWorkCurrent();
                 sleeping = false;
             }
             sleepTimer = 0;
@@ -729,7 +729,7 @@ FASTRUN void MachineLoop()
         {
             if (sleeping) /// Wake up
             {
-                setCurrent(workCurrent);
+                setWorkCurrent();
                 sleeping = false;
             }
             sleepTimer = 0;
@@ -794,7 +794,7 @@ FASTRUN void MachineLoop()
     /// longer to maintain constant speed.
 
     uint32_t cycles;
-    if (stepM1 && stepM2 && stepM3)
+    if (stepM1 && stepM3)
     {
         // diagonal step
         cycles = (uint32_t)(150.0f * machineSpeed * M_SQRT2 - 0.5f);
@@ -987,7 +987,7 @@ FASTRUN void YUp()
             break;
         }
 
-        if (M1_pos == move.endY && M2_pos == move.endY)
+        if (M1_pos  == move.endY)
         {
             activeMode = Mode::None;
             yState = YState::None;
@@ -1005,17 +1005,6 @@ FASTRUN void YUp()
             {
                 M1_direction = 1;
                 stepM1 = true;
-            }
-
-            if (M2_pos > move.endY)
-            {
-                M2_direction = -1;
-                stepM2 = true;
-            }
-            if (M2_pos < move.endY)
-            {
-                M2_direction = 1;
-                stepM2 = true;
             }
         }
 
@@ -1065,7 +1054,7 @@ FASTRUN void YDown()
             break;
         }
 
-        if (M1_pos == move.endY && M2_pos == move.endY)
+        if (M1_pos == move.endY)
         {
             activeMode = Mode::None;
             yState = YState::None;
@@ -1083,17 +1072,6 @@ FASTRUN void YDown()
             {
                 M1_direction = 1;
                 stepM1 = true;
-            }
-
-            if (M2_pos > move.endY)
-            {
-                M2_direction = -1;
-                stepM2 = true;
-            }
-            if (M2_pos < move.endY)
-            {
-                M2_direction = 1;
-                stepM2 = true;
             }
         }
 
@@ -1929,9 +1907,9 @@ FASTRUN void Home()
             break;
         }
 
-        if ((switches[swY1Start].pressed && switches[swY2Start].pressed) && switches[swXStart].pressed && switches[swZStart].pressed)
+        if ((switches[swY1Start].pressed || switches[swY2Start].pressed) && switches[swXStart].pressed && switches[swZStart].pressed)
         {
-            /// All limit switches hit,
+            /// Home limit switches hit,
             /// proceed to margin position
             heightMeasurementTime = 0;
 
@@ -1946,15 +1924,14 @@ FASTRUN void Home()
         {
             M1_direction = -1;
             stepM1 = true;
-            M2_direction = -1;
-            stepM2 = true;
+
             M3_direction = -1;
             stepM3 = true;
             M4_direction = -1;
             stepM4 = true;
         }
 
-        SetHomeDirectionsAndLimits();
+        SetDirectionsAndLimits();
         machineSpeed = homeSpeed;
         break;
     }
@@ -1972,16 +1949,14 @@ FASTRUN void Home()
             break;
         }
 
-        if (M1_pos == 7000 && M2_pos == 3000 && M3_pos == 6400 && heightMeasurement == 1500)
+        if (M1_pos == 7000 && M3_pos == 6400 && heightMeasurement == 1500)
         {
             heightMeasurementTime++;
             if (heightMeasurementTime > 1000)
             {
-                /// Margin reached at 1 cm on axis,
-                /// reset coordinates.
+                /// Margin reached, reset coordinates.
                 M1_pos = 0;
-                M2_pos = 0; // paper start at +2cm -> 25600
-                M3_pos = 0; // paper start at +2cm -> 25600
+                M3_pos = 0;
                 M4_pos = 0;
 
                 posXMotor = 0;
@@ -2006,17 +1981,6 @@ FASTRUN void Home()
             {
                 M1_direction = 1;
                 stepM1 = true;
-            }
-
-            if (M2_pos > 3000)
-            {
-                M2_direction = -1;
-                stepM2 = true;
-            }
-            if (M2_pos < 3000)
-            {
-                M2_direction = 1;
-                stepM2 = true;
             }
 
             if (M3_pos > 6400)
@@ -2055,7 +2019,7 @@ FASTRUN void Home()
             // }
         }
 
-        SetHomeDirectionsAndLimits();
+        SetDirectionsAndLimits();
         machineSpeed = homeSpeed * 4;
         break;
     }
@@ -2330,11 +2294,7 @@ FASTRUN void StepMotors()
         digitalToggleFast(M1_stepPin);
         M1_pos += M1_direction;
     }
-    if (stepM2)
-    {
-        digitalToggleFast(M2_stepPin);
-        M2_pos += M2_direction;
-    }
+
     if (stepM3)
     {
         digitalToggleFast(M3_stepPin);
@@ -2363,74 +2323,6 @@ FASTRUN void StepMotors()
     posZMotor = M4_pos;
 }
 
-
-FASTRUN void SetHomeDirectionsAndLimits()
-{
-    /// Switches for Y1 and Y2 are linked.
-    /// If a switch or switch wire fails,
-    /// left and right motors will both moving in that direction.
-
-    if (M1_direction == 1)
-    {
-        digitalWriteFast(M1_dirPin, LOW); // Motor reverse mount
-        if (switches[swY1End].pressed)
-            stepM1 = false;
-    }
-    if (M1_direction == -1)
-    {
-        digitalWriteFast(M1_dirPin, HIGH); // Motor reverse mount
-        if (switches[swY1Start].pressed)
-            stepM1 = false;
-    }
-
-    if (M2_direction == 1)
-    {
-        digitalWriteFast(M2_dirPin, HIGH);
-        if (switches[swY2End].pressed)
-            stepM2 = false;
-    }
-    if (M2_direction == -1)
-    {
-        digitalWriteFast(M2_dirPin, LOW);
-        if (switches[swY2Start].pressed)
-            stepM2 = false;
-    }
-
-    if (M3_direction == 1)
-    {
-        digitalWriteFast(M3_dirPin, HIGH);
-        if (switches[swXEnd].pressed)
-            stepM3 = false;
-    }
-    if (M3_direction == -1)
-    {
-        digitalWriteFast(M3_dirPin, LOW);
-        if (switches[swXStart].pressed)
-            stepM3 = false;
-    }
-
-    if (M4_direction == 1)
-    {
-        digitalWriteFast(M4_dirPin, HIGH);
-        if (switches[swZEnd].pressed)
-            stepM4 = false;
-    }
-    if (M4_direction == -1)
-    {
-        digitalWriteFast(M4_dirPin, LOW);
-        if (switches[swZStart].pressed)
-            stepM4 = false;
-    }
-
-    // Important if Z-limit has hit the deck, do not allow any movement in XY direction
-    if (switches[swZEnd].pressed)
-    {
-        stepM1 = false;
-        stepM2 = false;
-        stepM3 = false;
-    }
-}
-
 FASTRUN void SetDirectionsAndLimits()
 {
     /// Switches for Y1 and Y2 are linked.
@@ -2450,19 +2342,6 @@ FASTRUN void SetDirectionsAndLimits()
             stepM1 = false;
     }
 
-    if (M2_direction == 1)
-    {
-        digitalWriteFast(M2_dirPin, HIGH);
-        if (switches[swY1End].pressed || switches[swY2End].pressed)
-            stepM2 = false;
-    }
-    if (M2_direction == -1)
-    {
-        digitalWriteFast(M2_dirPin, LOW);
-        if (switches[swY1Start].pressed || switches[swY2Start].pressed)
-            stepM2 = false;
-    }
-
     if (M3_direction == 1)
     {
         digitalWriteFast(M3_dirPin, HIGH);
@@ -2493,7 +2372,6 @@ FASTRUN void SetDirectionsAndLimits()
     if (switches[swZEnd].pressed)
     {
         stepM1 = false;
-        stepM2 = false;
         stepM3 = false;
     }
 }
@@ -2516,15 +2394,12 @@ FASTRUN void StepY(int8_t dir)
     if (dir > 0)
     {
         M1_direction = 1;
-        M2_direction = 1;
     }
     else
     {
         M1_direction = -1;
-        M2_direction = -1;
     }
     stepM1 = true;
-    stepM2 = true;
 }
 
 FASTRUN void StepZ(int8_t dir)
@@ -2562,12 +2437,25 @@ FASTRUN void StepZDraw(int8_t dir)
     }
 }
 
-FASTRUN void setCurrent(int cur)
+FASTRUN void setWorkCurrent()
 {
-    stallGuardConfig.current_scale = min(31, max(0, cur));
+    stallGuardConfig.current_scale = min(31, max(20, 0)); // 20 (620 ma)
+    setTMC262Register(stallGuardConfig.bytes, M1_csPin);
+
+    stallGuardConfig.current_scale = min(31, max(0, 0));  // 16 (420 ma)
+    setTMC262Register(stallGuardConfig.bytes, M2_csPin);
+
+    stallGuardConfig.current_scale = min(31, max(16, 0));  // 12 (300 ma)
+    setTMC262Register(stallGuardConfig.bytes, M3_csPin);
+}
+
+FASTRUN void setSleepCurrent()
+{
+    stallGuardConfig.current_scale = min(31, max(4, 0));
     setTMC262Register(stallGuardConfig.bytes, M1_csPin);
     setTMC262Register(stallGuardConfig.bytes, M2_csPin);
     setTMC262Register(stallGuardConfig.bytes, M3_csPin);
+
 }
 
 FASTRUN void DebounceSwitches()
@@ -2593,8 +2481,6 @@ FASTRUN void DebounceSwitches()
     if (switches[swPanic].pressed)
     {
         // PANIC Button! Halting ALL MOTORS Right now
-        // digitalWriteFast(M1_M2_M3_ennPin, 1);
-        // digitalWriteFast(M4_M5_enPin, 1);
         HaltMotors();
     }
 
@@ -2630,28 +2516,28 @@ void updateStepperStatus()
     // if ((bool)status_M3.Stalled)
     //     Serial.println("M3 Stallguard status: Stalled");
 
-    // if ((bool) status_M1.OpenLoad_A) {
-    //     HaltMotors();
-    //     Serial.println("M1 OpenLoad detected: COIL A");
-    // }
+    if ((bool) status_M1.OpenLoad_A) {
+        // HaltMotors();
+        Serial.println("M1 OpenLoad detected: COIL A");
+    }
     // if ((bool) status_M2.OpenLoad_A) {
     //     HaltMotors();
     //     Serial.println("M2 OpenLoad detected: COIL A");
     // }
     // if ((bool) status_M3.OpenLoad_A) {
-    //     HaltMotors();
+    //     // HaltMotors();
     //     Serial.println("M3 OpenLoad detected: COIL A");
     // }
-    // if ((bool) status_M1.OpenLoad_B) {
-    //     HaltMotors();
-    //     Serial.println("M1 OpenLoad detected: COIL B");
-    // }
+    if ((bool) status_M1.OpenLoad_B) {
+        // HaltMotors();
+        Serial.println("M1 OpenLoad detected: COIL B");
+    }
     // if ((bool) status_M2.OpenLoad_B) {
     //     HaltMotors();
     //     Serial.println("M2 OpenLoad detected: COIL B");
     // }
     // if ((bool) status_M3.OpenLoad_B) {
-    //     HaltMotors();
+    //     // HaltMotors();
     //     Serial.println("M3 OpenLoad detected: COIL B");
     // }
 
@@ -2818,8 +2704,8 @@ void configureStepperDrivers()
     setTMC262Register(chopperConfig.bytes, M3_csPin);
 
     stallGuardConfig.address = 6;
-    stallGuardConfig.filter = 0;
-    stallGuardConfig.stall_threshold = 4; // 2s complement 0..63 = 0..63 / 64..127 = -63..-0
+    stallGuardConfig.filter = 1;
+    stallGuardConfig.stall_threshold = 16; // 2s complement 0..63 = 0..63 / 64..127 = -63..-0
     stallGuardConfig.current_scale = 0;
 
     setTMC262Register(stallGuardConfig.bytes, M1_csPin);
