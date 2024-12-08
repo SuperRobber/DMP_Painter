@@ -570,8 +570,6 @@ FASTRUN void MachineLoop()
         stepM1 = false;
         stepM2 = false;
         stepM3 = false;
-        stepM4 = false;
-        stepM5 = false;
 
         if (!sleeping)
         {
@@ -794,7 +792,7 @@ FASTRUN void MachineLoop()
     /// longer to maintain constant speed.
 
     uint32_t cycles;
-    if (stepM1 && stepM3)
+    if (stepM1 && stepM2)
     {
         // diagonal step
         cycles = (uint32_t)(150.0f * machineSpeed * M_SQRT2 - 0.5f);
@@ -831,10 +829,10 @@ FASTRUN void XUp()
     {
         if (isFine)
         {
-            move.endX = M3_pos - 20;
+            move.endX = M2_pos - 20;
         } else
         {
-            move.endX = M3_pos - 2000;
+            move.endX = M2_pos - 2000;
         }
         requestedMode = Mode::None;
         xState = XState::Move;
@@ -853,7 +851,7 @@ FASTRUN void XUp()
             break;
         }
 
-        if (M3_pos == move.endX)
+        if (M2_pos == move.endX)
         {
             activeMode = Mode::None;
             xState = XState::None;
@@ -861,16 +859,16 @@ FASTRUN void XUp()
         }
         else
         {
-            if (M3_pos > move.endX)
+            if (M2_pos > move.endX)
             {
-                M3_direction = -1;
-                stepM3 = true;
+                M2_direction = -1;
+                stepM2 = true;
             }
 
-            if (M3_pos < move.endX)
+            if (M2_pos < move.endX)
             {
-                M3_direction = 1;
-                stepM3 = true;
+                M2_direction = 1;
+                stepM2 = true;
             }
         }
 
@@ -898,10 +896,10 @@ FASTRUN void XDown()
     {
         if (isFine)
         {
-            move.endX = M3_pos + 20;
+            move.endX = M2_pos + 20;
         } else
         {
-            move.endX = M3_pos + 2000;
+            move.endX = M2_pos + 2000;
         }
         requestedMode = Mode::None;
         xState = XState::Move;
@@ -920,7 +918,7 @@ FASTRUN void XDown()
             break;
         }
 
-        if (M3_pos == move.endX)
+        if (M2_pos == move.endX)
         {
             activeMode = Mode::None;
             xState = XState::None;
@@ -928,16 +926,16 @@ FASTRUN void XDown()
         }
         else
         {
-            if (M3_pos > move.endX)
+            if (M2_pos > move.endX)
             {
-                M3_direction = -1;
-                stepM3 = true;
+                M2_direction = -1;
+                stepM2 = true;
             }
 
-            if (M3_pos < move.endX)
+            if (M2_pos < move.endX)
             {
-                M3_direction = 1;
-                stepM3 = true;
+                M2_direction = 1;
+                stepM2 = true;
             }
         }
 
@@ -1098,9 +1096,9 @@ FASTRUN void ZUp()
     case (ZState::Choose):
     {
         if (isFine) {
-            move.endZ = M4_pos - 20;
+            move.endZ = M3_pos - 20;
         } else {
-            move.endZ = M4_pos - 200;
+            move.endZ = M3_pos - 200;
         }
         requestedMode = Mode::None;
         zState = ZState::Move;
@@ -1119,7 +1117,7 @@ FASTRUN void ZUp()
             break;
         }
 
-        if (M4_pos == move.endZ)
+        if (M3_pos == move.endZ)
         {
             activeMode = Mode::None;
             zState = ZState::None;
@@ -1127,16 +1125,16 @@ FASTRUN void ZUp()
         }
         else
         {
-            if (M4_pos > move.endZ)
+            if (M3_pos > move.endZ)
             {
-                M4_direction = -1;
-                stepM4 = true;
+                M3_direction = -1;
+                stepM3 = true;
             }
 
-            if (M4_pos < move.endZ)
+            if (M3_pos < move.endZ)
             {
-                M4_direction = 1;
-                stepM4 = true;
+                M3_direction = 1;
+                stepM3 = true;
             }
         }
 
@@ -1162,9 +1160,9 @@ FASTRUN void ZDown()
     case (ZState::Choose):
     {
         if (isFine) {
-            move.endZ = M4_pos + 20;
+            move.endZ = M3_pos + 20;
         } else {
-            move.endZ = M4_pos + 200;
+            move.endZ = M3_pos + 200;
         }
         requestedMode = Mode::None;
         zState = ZState::Move;
@@ -1183,7 +1181,7 @@ FASTRUN void ZDown()
             break;
         }
 
-        if (M4_pos == move.endZ)
+        if (M3_pos == move.endZ)
         {
             activeMode = Mode::None;
             zState = ZState::None;
@@ -1191,16 +1189,16 @@ FASTRUN void ZDown()
         }
         else
         {
-            if (M4_pos > move.endZ)
+            if (M3_pos > move.endZ)
             {
-                M4_direction = -1;
-                stepM4 = true;
+                M3_direction = -1;
+                stepM3 = true;
             }
 
-            if (M4_pos < move.endZ)
+            if (M3_pos < move.endZ)
             {
-                M4_direction = 1;
-                stepM4 = true;
+                M3_direction = 1;
+                stepM3 = true;
             }
         }
 
@@ -1916,7 +1914,7 @@ FASTRUN void Home()
             M1_pos = 0;
             M2_pos = 0;
             M3_pos = 0;
-            M4_pos = 0;
+
             homeState = HomeState::Zero;
             statusFunction = StatusFunction::Homing;
         }
@@ -1924,11 +1922,10 @@ FASTRUN void Home()
         {
             M1_direction = -1;
             stepM1 = true;
-
+            M2_direction = -1;
+            stepM2 = true;
             M3_direction = -1;
             stepM3 = true;
-            M4_direction = -1;
-            stepM4 = true;
         }
 
         SetDirectionsAndLimits();
@@ -1949,15 +1946,15 @@ FASTRUN void Home()
             break;
         }
 
-        if (M1_pos == 7000 && M3_pos == 6400 && heightMeasurement == 1500)
+        if (M1_pos == 7000 && M2_pos == 6400 && heightMeasurement == 1500)
         {
             heightMeasurementTime++;
             if (heightMeasurementTime > 1000)
             {
                 /// Margin reached, reset coordinates.
                 M1_pos = 0;
+                M2_pos = 0;
                 M3_pos = 0;
-                M4_pos = 0;
 
                 posXMotor = 0;
                 posYMotor = 0;
@@ -1983,40 +1980,28 @@ FASTRUN void Home()
                 stepM1 = true;
             }
 
-            if (M3_pos > 6400)
+            if (M2_pos > 6400)
             {
-                M3_direction = -1;
-                stepM3 = true;
+                M2_direction = -1;
+                stepM2 = true;
             }
-            if (M3_pos < 6400)
+            if (M2_pos < 6400)
             {
-                M3_direction = 1;
-                stepM3 = true;
+                M2_direction = 1;
+                stepM2 = true;
             }
 
             if (heightMeasurement < 1500)
             {
-                M4_direction = -1;
-                stepM4 = true;
+                M3_direction = -1;
+                stepM3 = true;
             }
 
             if (heightMeasurement > 1500)
             {
-                M4_direction = 1;
-                stepM4 = true;
+                M3_direction = 1;
+                stepM3 = true;
             }
-
-            // if (M4_pos > 12800)
-            // {
-            //     M4_direction = -1;
-            //     stepM4 = true;
-            // }
-
-            // if (M4_pos < 12800)
-            // {
-            //     M4_direction = 1;
-            //     stepM4 = true;
-            // }
         }
 
         SetDirectionsAndLimits();
@@ -2295,32 +2280,30 @@ FASTRUN void StepMotors()
         M1_pos += M1_direction;
     }
 
+    if (stepM2)
+    {
+        digitalToggleFast(M2_stepPin);
+        M2_pos += M2_direction;
+    }
     if (stepM3)
     {
         digitalToggleFast(M3_stepPin);
         M3_pos += M3_direction;
-    }
-    if (stepM4)
-    {
-        digitalToggleFast(M4_stepPin);
-        M4_pos += M4_direction;
     }
 
     /// Reset step triggers.
     stepM1 = false;
     stepM2 = false;
     stepM3 = false;
-    stepM4 = false;
-    stepM5 = false;
 
     /// Update local positions.
-    posXMotor = M3_pos;
+    posXMotor = M2_pos;
     posYMotor = M1_pos;
+    posZMotor = M3_pos;
     
     posXDraw = posXMotor-posXStart;
     posYDraw = posYMotor-posYStart;
 
-    posZMotor = M4_pos;
 }
 
 FASTRUN void SetDirectionsAndLimits()
@@ -2342,37 +2325,37 @@ FASTRUN void SetDirectionsAndLimits()
             stepM1 = false;
     }
 
+    if (M2_direction == 1)
+    {
+        digitalWriteFast(M2_dirPin, HIGH);
+        if (switches[swXEnd].pressed)
+            stepM2 = false;
+    }
+    if (M2_direction == -1)
+    {
+        digitalWriteFast(M2_dirPin, LOW);
+        if (switches[swXStart].pressed)
+            stepM2 = false;
+    }
+
     if (M3_direction == 1)
     {
-        digitalWriteFast(M3_dirPin, HIGH);
-        if (switches[swXEnd].pressed)
+        digitalWriteFast(M3_dirPin, LOW);  // Motor reverse mount
+        if (switches[swZEnd].pressed)
             stepM3 = false;
     }
     if (M3_direction == -1)
     {
-        digitalWriteFast(M3_dirPin, LOW);
-        if (switches[swXStart].pressed)
-            stepM3 = false;
-    }
-
-    if (M4_direction == 1)
-    {
-        digitalWriteFast(M4_dirPin, HIGH);
-        if (switches[swZEnd].pressed)
-            stepM4 = false;
-    }
-    if (M4_direction == -1)
-    {
-        digitalWriteFast(M4_dirPin, LOW);
+        digitalWriteFast(M3_dirPin, HIGH); // Motor reverse mount
         if (switches[swZStart].pressed)
-            stepM4 = false;
+            stepM3 = false;
     }
 
     // Important if Z-limit has hit the deck, do not allow any movement in XY direction
     if (switches[swZEnd].pressed)
     {
         stepM1 = false;
-        stepM3 = false;
+        stepM2 = false;
     }
 }
 
@@ -2380,13 +2363,13 @@ FASTRUN void StepX(int8_t dir)
 {
     if (dir > 0)
     {
-        M3_direction = 1;
+        M2_direction = 1;
     }
     else
     {
-        M3_direction = -1;
+        M2_direction = -1;
     }
-    stepM3 = true;
+    stepM2 = true;
 }
 
 FASTRUN void StepY(int8_t dir)
@@ -2406,13 +2389,13 @@ FASTRUN void StepZ(int8_t dir)
 {
     if (dir > 0)
     {
-        M4_direction = 1;
+        M3_direction = 1;
     }
     else
     {
-        M4_direction = -1;
+        M3_direction = -1;
     }
-    stepM4 = true;
+    stepM3 = true;
 }
 
 FASTRUN void StepZDraw(int8_t dir)
@@ -2427,13 +2410,13 @@ FASTRUN void StepZDraw(int8_t dir)
 
     if (requestedPosition > posZMotor)
     {
-        M4_direction = 1;
-        stepM4 = true;
+        M3_direction = 1;
+        stepM3 = true;
     }
     if (requestedPosition < posZMotor)
     {
-        M4_direction = -1;
-        stepM4 = true;
+        M3_direction = -1;
+        stepM3 = true;
     }
 }
 
@@ -2442,18 +2425,19 @@ FASTRUN void setWorkCurrent()
     stallGuardConfig.current_scale = min(31, max(20, 0)); // 20 (620 ma)
     setTMC262Register(stallGuardConfig.bytes, M1_csPin);
 
-    stallGuardConfig.current_scale = min(31, max(0, 0));  // 16 (420 ma)
+    stallGuardConfig.current_scale = min(31, max(16, 0));  // 16 (420 ma)
     setTMC262Register(stallGuardConfig.bytes, M2_csPin);
 
-    stallGuardConfig.current_scale = min(31, max(16, 0));  // 12 (300 ma)
+    stallGuardConfig.current_scale = min(31, max(7, 0));  // 7 (300 ma)
     setTMC262Register(stallGuardConfig.bytes, M3_csPin);
 }
 
 FASTRUN void setSleepCurrent()
 {
-    stallGuardConfig.current_scale = min(31, max(4, 0));
+    stallGuardConfig.current_scale = min(31, max(3, 0));
     setTMC262Register(stallGuardConfig.bytes, M1_csPin);
     setTMC262Register(stallGuardConfig.bytes, M2_csPin);
+    stallGuardConfig.current_scale = min(31, max(2, 0));
     setTMC262Register(stallGuardConfig.bytes, M3_csPin);
 
 }
@@ -2516,29 +2500,29 @@ void updateStepperStatus()
     // if ((bool)status_M3.Stalled)
     //     Serial.println("M3 Stallguard status: Stalled");
 
-    if ((bool) status_M1.OpenLoad_A) {
+    // if ((bool) status_M1.OpenLoad_A) {
         // HaltMotors();
-        Serial.println("M1 OpenLoad detected: COIL A");
-    }
+        // Serial.println("M1 OpenLoad detected: COIL A");
+    // }
     // if ((bool) status_M2.OpenLoad_A) {
-    //     HaltMotors();
-    //     Serial.println("M2 OpenLoad detected: COIL A");
+        // HaltMotors();
+        // Serial.println("M2 OpenLoad detected: COIL A");
     // }
     // if ((bool) status_M3.OpenLoad_A) {
     //     // HaltMotors();
-    //     Serial.println("M3 OpenLoad detected: COIL A");
+        // Serial.println("M3 OpenLoad detected: COIL A");
     // }
-    if ((bool) status_M1.OpenLoad_B) {
+    // if ((bool) status_M1.OpenLoad_B) {
         // HaltMotors();
-        Serial.println("M1 OpenLoad detected: COIL B");
-    }
+        // Serial.println("M1 OpenLoad detected: COIL B");
+    // }
     // if ((bool) status_M2.OpenLoad_B) {
     //     HaltMotors();
-    //     Serial.println("M2 OpenLoad detected: COIL B");
+        // Serial.println("M2 OpenLoad detected: COIL B");
     // }
     // if ((bool) status_M3.OpenLoad_B) {
     //     // HaltMotors();
-    //     Serial.println("M3 OpenLoad detected: COIL B");
+        // Serial.println("M3 OpenLoad detected: COIL B");
     // }
 
     if ((bool)status_M1.OverTemp_Warning)
