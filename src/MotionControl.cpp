@@ -119,7 +119,8 @@ volatile DrawAction draw;
 volatile int32_t posXMotor = 0;
 volatile int64_t posXDraw = 0;
 volatile int32_t posXStart = 0;
-const int32_t posXSensorOffset = 83200; // 2cm paper offset + 4.5cm offset from laser to pen tip
+// const int32_t posXSensorOffset = 83200; // 2cm paper offset + 4.5cm offset from laser to pen tip
+const int32_t posXSensorOffset = 0; // 2cm paper offset + 4.5cm offset from laser to pen tip
 volatile XState xState = XState::None;
 
 volatile int32_t posYMotor = 0;
@@ -473,7 +474,7 @@ FASTRUN void MachineLoop()
 
     case Mode::SetPenUp:
     {
-        posZUp = posZMotor;
+        posZUp = posZMotor - getHeight((posXMotor)+posXSensorOffset, posYMotor);
         Serial.print("Set Pen Up position to: ");
         Serial.println(posZUp);
         requestedMode = Mode::None;
@@ -499,7 +500,7 @@ FASTRUN void MachineLoop()
 
     case Mode::SetPenMin:
     {
-        posZDrawMin = posZMotor;
+        posZDrawMin = posZMotor - getHeight((posXMotor)+posXSensorOffset, posYMotor);
         Serial.print("Set Pen Min position to: ");
         Serial.println(posZDrawMin);
         requestedMode = Mode::None;
@@ -525,7 +526,7 @@ FASTRUN void MachineLoop()
 
     case Mode::SetPenMax:
     {
-        posZDrawMax = posZMotor;
+        posZDrawMax = posZMotor - getHeight((posXMotor)+posXSensorOffset, posYMotor);
         Serial.print("Set Pen Max position to: ");
         Serial.println(posZDrawMax);
         requestedMode = Mode::None;
